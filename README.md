@@ -1,1 +1,1 @@
-## Compiler for B like language written in haskell
+## Compiler for B programming language written in haskell
