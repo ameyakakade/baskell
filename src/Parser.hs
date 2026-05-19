@@ -32,7 +32,7 @@ data BStatement = Auto     [(BName, BConstant)]
 data BRValue = BracketRValue BRValue
              | RLValue       BLValue
              | RConstant     BConstant
-             | Assignment    (BLValue, BRValue)
+             | Assignment    (BLValue, BAssign, BRValue)
              | IncDecPre     (BIncDec, BLValue)
              | IncDecPost    (BIncDec, BLValue)
              | RUnary        (BUnary, BRValue)
@@ -155,6 +155,9 @@ bIVal :: Parser BIVal
 bIVal = (fmap IConstant $ bConstant)
         <|> (fmap IName $ bName)
 
+bRValue :: Parser BRValue
+bRValue = undefined
+
 bAssign :: Parser BAssign
 bAssign = (fmap BinaryAssign $ charP '=' *> bBinary)
           <|> (fmap (\_ -> Assign) $ charP '=')
@@ -175,10 +178,6 @@ bBinary = newErr "Expected a binary operator" $
           <|> (fmap (\_ -> And) $ stringP "&")
           <|> (fmap (\_ -> Equal) $ stringP "==")
           <|> (fmap (\_ -> NotEqual) $ stringP "!=")
-          <|> (fmap (\_ -> LessThan) $ stringP "<")
-          <|> (fmap (\_ -> LessThanOrEqual) $ stringP "<=")
-          <|> (fmap (\_ -> MoreThan) $ stringP ">")
-          <|> (fmap (\_ -> MoreThanOrEqual) $ stringP ">=")
           <|> (fmap (\_ -> ShiftLeft) $ stringP "<<")
           <|> (fmap (\_ -> ShiftRight) $ stringP ">>")
           <|> (fmap (\_ -> LessThanOrEqual) $ stringP "<=")
@@ -190,6 +189,11 @@ bBinary = newErr "Expected a binary operator" $
           <|> (fmap (\_ -> Modulo) $ stringP "%")
           <|> (fmap (\_ -> Multiply) $ stringP "*")
           <|> (fmap (\_ -> Divide) $ stringP "/")
+
+bLValue :: Parser BLValue
+bLValue = (fmap LName $ bName)
+          <|> (fmap Dereference $ charP '*' *> ws *> bRValue)
+          <|> (fmap Array $ (,) <$> (bRValue <* ws <* charP '[') <*> (ws *> bRValue <* ws <* charP ']'))
 
 bConstant :: Parser BConstant
 bConstant = (fmap Digit $ fmap read $ fmap (:) (predicateP isDigit "Expected atleast one digit") <*> (spanP isDigit) )
