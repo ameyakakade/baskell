@@ -73,6 +73,7 @@ data BLValue = LName       BName
              deriving (Eq, Show)
 
 data BConstant = Digit Int
+               | Char Char
                | Chars String
                deriving (Eq, Show)
 
@@ -101,7 +102,7 @@ instance Alternative (Either ([String], Input)) where
   empty = Left ([], (0,0,""))
   (Right a) <|> _ = Right a 
   (Left  a) <|> (Right b) = Right b
-  (Left (e1, (l1, c1, s1))) <|> (Left (e2, (l2, c2, s2))) = if (l1+c1) > (l2+c2) -- return the error which parsed the most
+  (Left (e1, (l1, c1, s1))) <|> (Left (e2, (l2, c2, s2))) = if (l1+c1) >= (l2+c2) -- return the error which parsed the most
                                                             then Left (e1, (l1, c1, s1))
                                                             else Left (e2, (l2, c2, s2))
   
@@ -142,13 +143,21 @@ spanP predicate = Parser (\input -> Right (f input))
                           (l'', c'') = getNewIndex l' c' x
                       in (x:ys, (l'', c'', zs))
       | otherwise   = ([], (l, c, x:xs))
-      where
 
 ws :: Parser String
 ws = spanP isSpace
 
 bName :: Parser BName
 bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> (spanP isAlphaNum) 
+
+bConstant :: Parser BConstant
+bConstant = (fmap Digit $ fmap read $ fmap (:) (predicateP isDigit "Expected atleast one digit") <*> (spanP isDigit) )
+        <|> (fmap Char  $ charP '`' *> predicateP isAlpha "Expected a character" <* charP '`')
+        <|> (fmap Chars $ charP '"' *> spanP (/='"') <* charP '"')
+
+bIVal :: Parser BIVal
+bIVal = (fmap IConstant $ bConstant)
+    <|> (fmap IName $ bName)
 
 a = stringP "bar"
 b = stringP "hello"
