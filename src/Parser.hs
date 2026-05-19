@@ -42,6 +42,10 @@ data BRValue = BracketRValue BRValue
              -- TODO
              deriving (Eq, Show)
 
+data BAssign = Assign
+             | BinaryAssign BBinary
+             deriving (Eq, Show)
+
 data BIncDec = Increment
              | Decrement
              deriving (Eq, Show)
@@ -106,7 +110,7 @@ instance Alternative (Either ([String], Input)) where
                                                             then Left (e1, (l1, c1, s1))
                                                             else Left (e2, (l2, c2, s2))
   
-newErr :: String -> Parser String -> Parser String
+newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = (Right a)
         replace (Left (oldErr, a)) = (Left (newError:oldErr, a))
@@ -147,17 +151,49 @@ spanP predicate = Parser (\input -> Right (f input))
 ws :: Parser String
 ws = spanP isSpace
 
-bName :: Parser BName
-bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> (spanP isAlphaNum) 
+bIVal :: Parser BIVal
+bIVal = (fmap IConstant $ bConstant)
+        <|> (fmap IName $ bName)
+
+bAssign :: Parser BAssign
+bAssign = (fmap BinaryAssign $ charP '=' *> bBinary)
+          <|> (fmap (\_ -> Assign) $ charP '=')
+
+bIncDec :: Parser BIncDec
+bIncDec = newErr "Expected increment or decrement" $
+          (fmap (\_ -> Increment) $ stringP "++")
+          <|> (fmap (\_ -> Decrement) $ stringP "--")
+
+bUnary :: Parser BUnary
+bUnary = newErr "Expected a unary operator"
+          (fmap (\_ -> Negative) $ charP '-')
+          <|> (fmap (\_ -> Exclamation) $ charP '!')
+
+bBinary :: Parser BBinary
+bBinary = newErr "Expected a binary operator" $
+          (fmap (\_ -> Or) $ stringP "|")
+          <|> (fmap (\_ -> And) $ stringP "&")
+          <|> (fmap (\_ -> Equal) $ stringP "==")
+          <|> (fmap (\_ -> NotEqual) $ stringP "!=")
+          <|> (fmap (\_ -> LessThan) $ stringP "<")
+          <|> (fmap (\_ -> LessThanOrEqual) $ stringP "<=")
+          <|> (fmap (\_ -> MoreThan) $ stringP ">")
+          <|> (fmap (\_ -> MoreThanOrEqual) $ stringP ">=")
+          <|> (fmap (\_ -> ShiftLeft) $ stringP "<<")
+          <|> (fmap (\_ -> ShiftRight) $ stringP ">>")
+          <|> (fmap (\_ -> Add) $ stringP "+")
+          <|> (fmap (\_ -> Subtract) $ stringP "-")
+          <|> (fmap (\_ -> Modulo) $ stringP "%")
+          <|> (fmap (\_ -> Multiply) $ stringP "*")
+          <|> (fmap (\_ -> Divide) $ stringP "/")
 
 bConstant :: Parser BConstant
 bConstant = (fmap Digit $ fmap read $ fmap (:) (predicateP isDigit "Expected atleast one digit") <*> (spanP isDigit) )
-        <|> (fmap Char  $ charP '`' *> predicateP isAlpha "Expected a character" <* charP '`')
-        <|> (fmap Chars $ charP '"' *> spanP (/='"') <* charP '"')
+            <|> (fmap Char  $ charP '`' *> predicateP isAlpha "Expected a character" <* charP '`')
+            <|> (fmap Chars $ charP '"' *> spanP (/='"') <* charP '"')
 
-bIVal :: Parser BIVal
-bIVal = (fmap IConstant $ bConstant)
-    <|> (fmap IName $ bName)
+bName :: Parser BName
+bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> (spanP isAlphaNum) 
 
 a = stringP "bar"
 b = stringP "hello"
