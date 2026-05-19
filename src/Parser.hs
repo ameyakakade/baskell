@@ -110,17 +110,48 @@ newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = (Right a)
         replace (Left (oldErr, a)) = (Left (newError:oldErr, a))
 
-charP :: Char -> Parser Char
-charP x = Parser f
+getNewIndex :: Int -> Int -> Char -> (Int, Int)
+getNewIndex line col char = (lineN, colN)
+  where
+    colN = if isNewLine then 0 else (col+1)
+    lineN = (if isNewLine then 1 else 0) + line
+    isNewLine = char == '\n'
+
+predicateP :: (Char -> Bool) -> String -> Parser Char
+predicateP p err = Parser f
   where
     f (line, col, (y:ys))
-      | y == x = Right (x, (lineN, colN, ys))
-      | otherwise = Left (("Expected " ++ (show x)):[], (lineN, colN, y:ys))
+      | p y = Right (y, (lineN, colN, ys))
+      | otherwise = Left ((err):[], (lineN, colN, y:ys))
       where
-        colN = if isNewLine then 0 else (col+1)
-        lineN = (if isNewLine then 1 else 0) + line
-        isNewLine = y == '\n'
-    f (line, col, []) = Left (("Expected " ++ (show x) ++ ", reached end of file."):[], (line, col, []))
+        (lineN, colN) = getNewIndex line col y
+    f (line, col, []) = Left ((err ++ ", reached end of file."):[], (line, col, []))
+
+charP :: Char -> Parser Char
+charP x = predicateP ((==) x) ("Expected " ++ (show x))
 
 stringP :: String -> Parser String
 stringP input = newErr ("Expected " ++ input) $ sequenceA $ map charP input
+
+spanP :: (Char -> Bool) -> Parser String
+spanP predicate = Parser (\input -> Right (f input))
+  where
+    f (c, r, []) = ([], (c, r, []))
+    f (l, c, x:xs)
+      | predicate x = let (ys, (l', c', zs)) = f (l, c, xs)
+                          (l'', c'') = getNewIndex l' c' x
+                      in (x:ys, (l'', c'', zs))
+      | otherwise   = ([], (l, c, x:xs))
+      where
+
+ws :: Parser String
+ws = spanP isSpace
+
+bName :: Parser BName
+bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> (spanP isAlphaNum) 
+
+a = stringP "bar"
+b = stringP "hello"
+c = a <|> b 
+
+startParser parser input = runParser parser (0, 0, input)
