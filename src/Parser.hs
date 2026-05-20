@@ -39,6 +39,7 @@ data BRValue = BracketRValue BRValue
              | GetAddress    BLValue
              | Binary        (BRValue, BBinary, BRValue)
              | Ternary       (BRValue, BRValue, BRValue)
+             | Ooo
              -- TODO
              deriving (Eq, Show)
 
@@ -155,24 +156,6 @@ bIVal :: Parser BIVal
 bIVal = (fmap IConstant $ bConstant)
         <|> (fmap IName $ bName)
 
--- the binary and ternary parses parse a single r value first so it doesnt recurse infinitely
--- this makes it so that all operators are parsed as right associative
-bRValue = (fmap Binary $ (,,) <$>  (ws *> bSingleRValue <* ws) <*> (ws *> bBinary <* ws) <*> bRValue)
-          <|> (fmap Ternary $ (,,) <$> (bSingleRValue <* ws <* charP '?' <* ws) <*> (bRValue <* ws <* charP ':' <* ws) <*> bRValue)
-          <|> bSingleRValue
-
--- this R value parsers r value expect binary and ternary
-bSingleRValue :: Parser BRValue
-bSingleRValue = newErr "Expected a R value" $
-          (fmap BracketRValue $ charP '(' *> ws *> bRValue <* ws <* charP ')')
-          <|> (fmap Assignment $ (,,) <$> bLValue <*> (ws *> bAssign <* ws) <*> bRValue)
-          <|> (fmap IncDecPre $ (,) <$> bIncDec <*> (ws *> bLValue))
-          <|> (fmap IncDecPost $ (,) <$> (bLValue <* ws) <*> bIncDec)
-          <|> (fmap RLValue $ bLValue)
-          <|> (fmap RConstant $ bConstant)
-          <|> (fmap RUnary $ (,) <$> (bUnary <* ws) <*> bRValue)
-          <|> (fmap GetAddress $ charP '&' *> ws *> bLValue)
-
 bAssign :: Parser BAssign
 bAssign = (fmap BinaryAssign $ charP '=' *> bBinary)
           <|> (fmap (\_ -> Assign) $ charP '=')
@@ -204,12 +187,6 @@ bBinary = newErr "Expected a binary operator" $
           <|> (fmap (\_ -> Modulo) $ stringP "%")
           <|> (fmap (\_ -> Multiply) $ stringP "*")
           <|> (fmap (\_ -> Divide) $ stringP "/")
-
-bLValue :: Parser BLValue
-bLValue = newErr "Expected a L value" $
-          (fmap LName $ bName)
-          <|> (fmap Dereference $ charP '*' *> ws *> bRValue)
-          -- <|> (fmap Array $ (,) <$> (bRValue <* ws <* charP '[') <*> (ws *> bRValue <* ws <* charP ']'))
 
 bConstant :: Parser BConstant
 bConstant = (fmap Digit $ fmap read $ fmap (:) (predicateP isDigit "Expected atleast one digit") <*> (spanP isDigit) )
