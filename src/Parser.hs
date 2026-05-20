@@ -39,7 +39,6 @@ data BRValue = BracketRValue BRValue
              | GetAddress    BLValue
              | Binary        (BRValue, BBinary, BRValue)
              | Ternary       (BRValue, BRValue, BRValue)
-             | Ooo
              -- TODO
              deriving (Eq, Show)
 
@@ -110,7 +109,14 @@ instance Alternative (Either ([String], Input)) where
   (Left (e1, (l1, c1, s1))) <|> (Left (e2, (l2, c2, s2))) = if (l1+c1) >= (l2+c2) -- return the error which parsed the most
                                                             then Left (e1, (l1, c1, s1))
                                                             else Left (e2, (l2, c2, s2))
-  
+
+instance Monad Parser where
+    Parser p >>= f = Parser $ \input -> do
+                        (a, restIn) <- p input
+                        let (Parser np) = f a
+                        (b, _) <- np input
+                        pure (b, restIn)
+                           
 newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = (Right a)
