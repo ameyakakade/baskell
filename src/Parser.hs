@@ -42,6 +42,13 @@ data BRValue = BracketRValue BRValue
              -- TODO
              deriving (Eq, Show)
 
+          -- left binding power, right binding power
+bindingPower :: BBinary -> (Int, Int)
+bindingPower Add             = (1, 2)
+bindingPower Subtract        = (1, 2)
+bindingPower Multiply        = (3, 4)
+bindingPower Divide          = (3, 4)
+
 data BAssign = Assign
              | BinaryAssign BBinary
              deriving (Eq, Show)
@@ -114,13 +121,15 @@ instance Monad Parser where
     Parser p >>= f = Parser $ \input -> do
                         (a, restIn) <- p input
                         let (Parser np) = f a
-                        (b, _) <- np input
-                        pure (b, restIn)
+                        (b, restIn') <- np restIn
+                        pure (b, restIn')
                            
 newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = (Right a)
         replace (Left (oldErr, a)) = (Left (newError:oldErr, a))
+
+startParser parser input = runParser parser (0, 0, input)
 
 getNewIndex :: Int -> Int -> Char -> (Int, Int)
 getNewIndex line col char = (lineN, colN)
@@ -137,7 +146,7 @@ predicateP p err = Parser f
       | otherwise = Left ((err):[], (lineN, colN, y:ys))
       where
         (lineN, colN) = getNewIndex line col y
-    f (line, col, []) = Left ((err ++ ", reached end of file."):[], (line, col, []))
+    f (line, col, []) = Left ((err ++ ", reached end of input."):[], (line, col, []))
 
 charP :: Char -> Parser Char
 charP x = predicateP ((==) x) ("Expected " ++ (show x))
@@ -199,11 +208,45 @@ bConstant = (fmap Digit $ fmap read $ fmap (:) (predicateP isDigit "Expected atl
             <|> (fmap Char  $ charP '`' *> predicateP isAlpha "Expected a character" <* charP '`')
             <|> (fmap Chars $ charP '"' *> spanP (/='"') <* charP '"')
 
+-- this function takes a parser and makes a 'finite parser' that
+-- consumes the input and runs the parser on provided string
+finiteParser :: Parser a -> (String -> Parser a)
+finiteParser p = \s -> Parser (f (a s))
+    where a string = startParser p string
+          f (Right r) i = (Right r)
+          f (Left (err, (lr, cr, sr))) (l, c, s) = (Left (err, (lr+l, cr+c, s)))
+
 bName :: Parser BName
 bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> (spanP isAlphaNum) 
 
-a = stringP "bar"
-b = stringP "hello"
-c = a <|> b 
+pratter :: Int -> Parser BRValue
+pratter minBP = (RConstant <$> bConstant) >>= loop
+    where loop lhs = Parser $ \(l,c,i) -> if i==[]
+                                          then Right (lhs, (l,c,i))
+                                          else do
+                                            let input = (l,c,i)
+                                            (op, restIn) <- (runParser bBinary input)
+                                            let (lbp, rbp) = bindingPower op
+                                            if (lbp<minBP)
+                                            then Right (lhs, input)
+                                            else do
+                                              (rhs, restIn') <- (runParser (pratter rbp) restIn)
+                                              (flhs, restIn'') <- runParser (loop (Binary (lhs, op, rhs))) restIn'
+                                              Right (flhs, restIn'')
 
-startParser parser input = runParser parser (0, 0, input)
+visualizeTree :: Int -> BRValue -> String
+visualizeTree d (RConstant a) = show a
+visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i ++ i ++ ro
+    where so = show o
+          lo = visualizeTree (d+1) l
+          ro = visualizeTree (d+1) r
+          i = take (d*2) $ repeat ' '
+
+a = finiteParser (stringP "atleast")
+b = spanP (/=';') <* charP ';' <* ws
+c = b >>= a
+d = (,) <$> c <*> c
+
+test i = putStr $ (++"\n") $ visualizeTree 0 a
+         where r = startParser (pratter 0) i
+               (Right (a,_)) = r
