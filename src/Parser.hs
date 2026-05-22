@@ -122,7 +122,7 @@ instance Monad Parser where
                         (a, restIn) <- p input
                         let (Parser np) = f a
                         np restIn
-                           
+                        
 newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = Right a
@@ -207,16 +207,20 @@ bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast 
             <|> fmap Char (charP '`' *> predicateP isAlpha "Expected a character" <* charP '`')
             <|> fmap Chars (charP '"' *> spanP (/='"') <* charP '"')
 
+bName :: Parser BName
+bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum
+
 -- this function takes a parser and makes a 'finite parser' that
--- consumes the input and runs the parser on provided string
+-- does not change the input and runs the parser on provided string
+-- it has to parse the whole provided string or it will error out
+-- it assumes that the previous parser who provides the string has
+-- consumed it
 finiteParser :: Parser a -> (String -> Parser a)
 finiteParser p = Parser . f . a
     where a = startParser p
-          f (Right r) i = Right r
-          f (Left (err, (lr, cr, sr))) (l, c, s) = Left (err, (lr+l, cr+c, s))
-
-bName :: Parser BName
-bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum
+          f (Right (b,(_,_,[]))) i = Right (b,i)
+          f (Left (err, (_,_,sr))) (l, c, s) = Left (err, (l, c - length sr, s))
+          f (Right (b,(_,_,ri))) (l, c, s) = Left (["Unexpected string, "++ri], (l, c - length ri, s))
 
 pratter :: Int -> Parser BRValue
 pratter minBP = bConstant >>= loop . RConstant 
@@ -243,10 +247,12 @@ visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i 
           ro = visualizeTree (d+1) r
           i = replicate (d*2) ' '
 
-a = finiteParser (stringP "atleast")
+a = finiteParser (pratter 0)
+e = finiteParser (stringP "atleast" <* ws)
 b = spanP (/=';') <* charP ';' <* ws
 c = b >>= a
-d = (,) <$> c <*> c
+f = b >>= e
+d = (,,) <$> f <*> f <*> c
 
 test i = putStr $ (++"\n") $ visualizeTree 0 a
          where r = startParser (pratter 0) i
