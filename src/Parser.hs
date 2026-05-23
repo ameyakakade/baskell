@@ -223,7 +223,7 @@ finiteParser p = Parser . f . a
           f (Right (b,(_,_,ri))) (l, c, s) = Left (["Unexpected string, "++ri], (l, c - length ri, s))
 
 pratter :: Int -> Parser BRValue
-pratter minBP = bConstant >>= loop . RConstant 
+pratter minBP = bSingleRValue >>= loop
     where loop lhs = Parser
                      $ \(l,c,i) ->
                          if null i
@@ -238,6 +238,17 @@ pratter minBP = bConstant >>= loop . RConstant
                              (rhs, restIn') <- runParser (pratter rbp) restIn
                              (flhs, restIn'') <- runParser (loop (Binary (lhs, op, rhs))) restIn'
                              Right (flhs, restIn'')
+
+bRValue :: Parser BRValue
+bRValue = pratter 0
+
+bLValue :: Parser BLValue
+bLValue = fmap LName bName
+
+bSingleRValue :: Parser BRValue
+bSingleRValue = fmap RLValue (bLValue)
+                <|> fmap RConstant (bConstant)
+                <|> fmap BracketRValue (charP '(' *> ws *> (selectedBracketed '(' ')' >>= (finiteParser bRValue)) <* ws <* charP ')')
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
