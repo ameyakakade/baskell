@@ -248,11 +248,28 @@ bLValue = fmap LName bName
 bSingleRValue :: Parser BRValue
 bSingleRValue = fmap RLValue (bLValue)
                 <|> fmap RConstant (bConstant)
-                <|> fmap BracketRValue (charP '(' *> ws *> (selectedBracketed '(' ')' >>= (finiteParser bRValue)) <* ws <* charP ')')
+                <|> fmap BracketRValue (ws *> (selectBracketed '(' ')' 0 >>= (finiteParser bRValue)) <* ws)
 
-selectedBracketed :: Char -> Char -> Int -> Parser String
-selectedBracketed startIden endIden n = undefined
-                    
+-- this function selects a string surrounded by brackets.
+-- it even works for nested brackets
+selectBracketed :: Char -> Char -> Int -> Parser String
+selectBracketed sI eI n = (,) <$> (charP eI <|> charP sI) <*> spanP (p) >>= f
+    where p c = c /= sI && c /= eI
+          f (b,s) = Parser $ \i ->
+                    if b==eI
+                    then if n == 1
+                         then Right (s, i)
+                         else do
+                           (a, restIn) <- runParser (selectBracketed sI eI (n-1)) i
+                           Right ([b]++s++a, restIn)
+                    else if n == 0
+                         then do
+                           (a, restIn) <- runParser (selectBracketed sI eI (n+1)) i
+                           Right (s++a, restIn)
+                         else do
+                           (a, restIn) <- runParser (selectBracketed sI eI (n+1)) i
+                           Right ([b]++s++a, restIn)
+
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
 visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i ++ i ++ ro
