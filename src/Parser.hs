@@ -250,6 +250,9 @@ bSingleRValue = fmap RLValue (bLValue)
                 <|> fmap RConstant (bConstant)
                 <|> fmap BracketRValue (charP '(' *> ws *> (selectedBracketed '(' ')' >>= (finiteParser bRValue)) <* ws <* charP ')')
 
+selectedBracketed :: Char -> Char -> Int -> Parser String
+selectedBracketed startIden endIden n = undefined
+                    
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
 visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i ++ i ++ ro
