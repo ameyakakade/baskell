@@ -137,6 +137,13 @@ getNewIndex line col char = (lineN, colN)
     lineN = (if isNewLine then 1 else 0) + line
     isNewLine = char == '\n'
 
+getStringIndex :: String -> (Int, Int)
+getStringIndex string = (lineN, colN)
+  where
+    colN = length s
+    (s,_) = span (/='\n') string
+    lineN = length $ filter (=='\n') string
+
 predicateP :: (Char -> Bool) -> String -> Parser Char
 predicateP p err = Parser f
   where
@@ -215,12 +222,16 @@ bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spa
 -- it has to parse the whole provided string or it will error out
 -- it assumes that the previous parser who provides the string has
 -- consumed it
+
+-- reporting errors will be slow because it has to calculate the correct
+-- line and column number which has to traverse the entire remaining string
 finiteParser :: Parser a -> (String -> Parser a)
 finiteParser p = Parser . f . a
     where a = startParser p
           f (Right (b,(_,_,[]))) i = Right (b,i)
-          f (Left (err, (_,_,sr))) (l, c, s) = Left (err, (l, c - length sr, s))
-          f (Right (b,(_,_,ri))) (l, c, s) = Left (["Unexpected string, "++ri], (l, c - length ri, s))
+          f (Left (err, (_,_,sr))) (l, c, s) = Left (err, (l - dl, c - dc, s)) where (dl, dc) = getStringIndex sr
+          f (Right (b,(_,_,ri))) (l, c, s) = Left (["Unexpected string, "++ri], (l - dl, c - dc , s)) where (dl, dc) = getStringIndex ri
+
 
 -- this function takes a parser and keeps running it till the input
 -- is empty. best combined with finite parsers
