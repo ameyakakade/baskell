@@ -222,6 +222,16 @@ finiteParser p = Parser . f . a
           f (Left (err, (_,_,sr))) (l, c, s) = Left (err, (l, c - length sr, s))
           f (Right (b,(_,_,ri))) (l, c, s) = Left (["Unexpected string, "++ri], (l, c - length ri, s))
 
+-- this function takes a parser and keeps running it till the input
+-- is empty. best combined with finite parsers
+repeatedParser :: Parser a -> Parser [a]
+repeatedParser parser = parser >>= f
+    where f s = Parser $ \(l,r,i) -> if i/=[]
+                then do
+                  (a, restIn) <- runParser (repeatedParser parser) (l,r,i)
+                  return (s:a, restIn)
+                else return ([s], (l,r,i))
+
 pratter :: Int -> Parser BRValue
 pratter minBP = bSingleRValue >>= loop
     where loop lhs = Parser
@@ -272,15 +282,7 @@ selectBracketed sI eI n = (,) <$> (charP eI <|> charP sI) <*> spanP (p) >>= f
 
 statementParser :: Parser BStatement
 statementParser = fmap SRValue ((spanP (/=';') <* charP ';') >>= finiteParser bRValue)
-                  <|> fmap Block ((selectBracketed '{' '}' 0) >>= finiteParser blockParser)
-
-blockParser :: Parser [BStatement]
-blockParser = (ws *> statementParser) >>= f
-    where f s = Parser $ \(l,r,i) -> if i/=[]
-                then do
-                  (a, restIn) <- runParser blockParser (l,r,i)
-                  return (s:a, restIn)
-                else return ([s], (l,r,i))
+                  <|> fmap Block ((selectBracketed '{' '}' 0) >>= (finiteParser $ repeatedParser (ws *> statementParser)))
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
@@ -289,8 +291,6 @@ visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i 
           lo = visualizeTree (d+1) l
           ro = visualizeTree (d+1) r
           i = replicate (d*2) ' '
-
-
 
 a = finiteParser (pratter 0)
 e = finiteParser (stringP "atleast" <* ws)
