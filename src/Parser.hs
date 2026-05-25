@@ -267,9 +267,9 @@ bLValue :: Parser BLValue
 bLValue = fmap LName bName
 
 bSingleRValue :: Parser BRValue
-bSingleRValue = fmap RLValue (bLValue)
-                <|> fmap RConstant (bConstant)
-                <|> fmap BracketRValue (ws *> (selectBracketed '(' ')' 0 >>= (finiteParser bRValue)) <* ws)
+bSingleRValue = fmap RLValue bLValue
+                <|> fmap RConstant bConstant
+                <|> fmap BracketRValue (ws *> (selectBracketed '(' ')' 0 >>= finiteParser bRValue) <* ws)
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
@@ -281,25 +281,25 @@ selectBracketed sI eI n = (charP eI <|> charP sI) >>= f
                     then if n == 1
                          then Right ([], i)
                          else do
-                           (s, restIn) <- runParser (spanP (p)) i
+                           (s, restIn) <- runParser (spanP p) i
                            (a, restIn') <- runParser (selectBracketed sI eI (n-1)) restIn
                            Right ([b]++s++a, restIn')
                     else if n == 0
                          then do
-                           (s, restIn) <- runParser (spanP (p)) i
+                           (s, restIn) <- runParser (spanP p) i
                            (a, restIn') <- runParser (selectBracketed sI eI (n+1)) restIn
                            Right (s++a, restIn')
                          else do
-                           (s, restIn) <- runParser (spanP (p)) i
+                           (s, restIn) <- runParser (spanP p) i
                            (a, restIn') <- runParser (selectBracketed sI eI (n+1)) restIn
                            Right ([b]++s++a, restIn')
 
 statementParser :: Parser BStatement
 statementParser = fmap SRValue ((spanP (/=';') <* charP ';') >>= finiteParser bRValue)
-                  <|> fmap While ((,) <$> (stringP "while" *> ws *> ((selectBracketed '(' ')' 0) >>= finiteParser bRValue)) <*> statementParser)
-                  <|> fmap Goto (stringP "goto" *> predicateP (isSpace) "Expected goto." *> ws *>
-                                             (newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>= finiteParser bRValue)))
-                  <|> fmap Block ((selectBracketed '{' '}' 0) >>= (finiteParser $ repeatedParser (ws *> statementParser)))
+                  <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>= finiteParser bRValue)) <*> statementParser)
+                  <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
+                                             newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>= finiteParser bRValue))
+                  <|> fmap Block (selectBracketed '{' '}' 0 >>= finiteParser (repeatedParser (ws *> statementParser)))
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
