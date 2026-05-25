@@ -270,6 +270,18 @@ selectBracketed sI eI n = (,) <$> (charP eI <|> charP sI) <*> spanP (p) >>= f
                            (a, restIn) <- runParser (selectBracketed sI eI (n+1)) i
                            Right ([b]++s++a, restIn)
 
+statementParser :: Parser BStatement
+statementParser = fmap SRValue ((spanP (/=';') <* charP ';') >>= finiteParser bRValue)
+                  <|> fmap Block ((selectBracketed '{' '}' 0) >>= finiteParser blockParser)
+
+blockParser :: Parser [BStatement]
+blockParser = (ws *> statementParser) >>= f
+    where f s = Parser $ \(l,r,i) -> if i/=[]
+                then do
+                  (a, restIn) <- runParser blockParser (l,r,i)
+                  return (s:a, restIn)
+                else return ([s], (l,r,i))
+
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
 visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i ++ i ++ ro
@@ -277,6 +289,8 @@ visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i 
           lo = visualizeTree (d+1) l
           ro = visualizeTree (d+1) r
           i = replicate (d*2) ' '
+
+
 
 a = finiteParser (pratter 0)
 e = finiteParser (stringP "atleast" <* ws)
