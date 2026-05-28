@@ -262,9 +262,11 @@ pratter minBP = bSingleRValue >>= loop
 
 bRValue :: Parser BRValue
 bRValue = pratter 0
+          <|> fmap Assignment ((,,) <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue)
 
 bLValue :: Parser BLValue
 bLValue = fmap LName bName
+          <|> fmap Dereference (charP '*' *> bRValue)
 
 bSingleRValue :: Parser BRValue
 bSingleRValue = fmap RLValue bLValue
