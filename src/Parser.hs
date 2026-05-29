@@ -302,6 +302,8 @@ statementParser = fmap SRValue ((spanP (/=';') <* charP ';') >>= finiteParser bR
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                              newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>= finiteParser bRValue))
                   <|> fmap Block (selectBracketed '{' '}' 0 >>= finiteParser (repeatedParser (ws *> statementParser)))
+                  -- <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
+                  --                 newErr "Expect a name." ((spanP (/=';') <* charP ';')
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
@@ -321,3 +323,12 @@ d = (,,) <$> f <*> f <*> c
 test i = putStr $ (++"\n") $ visualizeTree 0 a
          where r = startParser (pratter 0) i
                (Right (a,_)) = r
+
+splitOn :: (Eq a) => a -> [a] -> [[a]]
+splitOn delim = foldr (splitOnHelper delim) [[]]
+
+splitOnHelper :: (Eq a) => a -> (a -> [[a]] -> [[a]])
+splitOnHelper delim x acc = if x==delim then
+                              []:acc
+                            else
+                              (x : acc!!0):drop 1 acc 
