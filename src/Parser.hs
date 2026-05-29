@@ -137,13 +137,6 @@ getNewIndex line col char = (lineN, colN)
     lineN = (if isNewLine then 1 else 0) + line
     isNewLine = char == '\n'
 
-getStringIndex :: String -> (Int, Int)
-getStringIndex string = (lineN, colN)
-  where
-    colN = length s
-    (s,_) = span (/='\n') string
-    lineN = length $ filter (=='\n') string
-
 predicateP :: (Char -> Bool) -> String -> Parser Char
 predicateP p err = Parser f
   where
@@ -217,21 +210,16 @@ bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast 
 bName :: Parser BName
 bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum
 
--- this function takes a parser and makes a 'finite parser' that
--- does not change the input and runs the parser on provided string
--- it has to parse the whole provided string or it will error out
--- it assumes that the previous parser who provides the string has
--- consumed it
-
--- reporting errors will be slow because it has to calculate the correct
--- line and column number which has to traverse the entire remaining string
-finiteParser :: Parser a -> (String -> Parser a)
-finiteParser p = Parser . f . a
-    where a = startParser p
-          f (Right (b,(_,_,[]))) i = Right (b,i)
-          f (Left (err, (_,_,sr))) (l, c, s) = Left (err, (l - dl, c - dc, s)) where (dl, dc) = getStringIndex sr
-          f (Right (b,(_,_,ri))) (l, c, s) = Left (["Unexpected string, "++ri], (l - dl, c - dc , s)) where (dl, dc) = getStringIndex ri
-
+(>>>) :: Parser String -> Parser b -> Parser b
+f >>> g = Parser $ \input -> do
+            (s, restIn) <- runParser f input
+            let (l, c, i) = input
+            let a = startParser g s
+            case a of
+              Right (r, (l', c', i')) -> if i' == []
+                                         then Right (r, restIn)
+                                         else Left (["Unexpected string, "++i'], (l+l', c+c', i))
+              Left (err, (l', c', i'))  -> Left (err, (l+l', c+c', i))
 
 -- this function takes a parser and keeps running it till the input
 -- is empty. best combined with finite parsers
@@ -271,7 +259,7 @@ bLValue = fmap LName bName
 bSingleRValue :: Parser BRValue
 bSingleRValue = fmap RLValue bLValue
                 <|> fmap RConstant bConstant
-                <|> fmap BracketRValue (ws *> (selectBracketed '(' ')' 0 >>= finiteParser bRValue) <* ws)
+                <|> fmap BracketRValue (ws *> (selectBracketed '(' ')' 0 >>> bRValue) <* ws)
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
@@ -279,31 +267,25 @@ selectBracketed :: Char -> Char -> Int -> Parser String
 selectBracketed sI eI n = (charP eI <|> charP sI) >>= f
     where p c = c /= sI && c /= eI
           f b = Parser $ \i ->
-                    if b==eI
-                    then if n == 1
-                         then Right ([], i)
-                         else do
-                           (s, restIn) <- runParser (spanP p) i
-                           (a, restIn') <- runParser (selectBracketed sI eI (n-1)) restIn
-                           Right ([b]++s++a, restIn')
-                    else if n == 0
-                         then do
-                           (s, restIn) <- runParser (spanP p) i
-                           (a, restIn') <- runParser (selectBracketed sI eI (n+1)) restIn
-                           Right (s++a, restIn')
-                         else do
-                           (s, restIn) <- runParser (spanP p) i
-                           (a, restIn') <- runParser (selectBracketed sI eI (n+1)) restIn
-                           Right ([b]++s++a, restIn')
+                let z bs ns = do
+                      (s, restIn) <- runParser (spanP p) i
+                      (a, restIn') <- runParser (selectBracketed sI eI ns) restIn
+                      Right (bs++s++a, restIn')
+                in
+                  if b==eI
+                  then if n == 1
+                       then Right ([], i)
+                       else z [b] (n-1)
+                  else if n == 0
+                       then z [] (n+1)
+                       else z [b] (n+1)
 
 statementParser :: Parser BStatement
-statementParser = fmap SRValue ((spanP (/=';') <* charP ';') >>= finiteParser bRValue)
-                  <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>= finiteParser bRValue)) <*> statementParser)
+statementParser = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
+                  <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> statementParser)
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
-                                             newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>= finiteParser bRValue))
-                  <|> fmap Block (selectBracketed '{' '}' 0 >>= finiteParser (repeatedParser (ws *> statementParser)))
-                  -- <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
-                  --                 newErr "Expect a name." ((spanP (/=';') <* charP ';')
+                                 newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>> bRValue))
+                  <|> fmap Block (selectBracketed '{' '}' 0 >>> (repeatedParser (ws *> statementParser)))
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
@@ -313,11 +295,11 @@ visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i 
           ro = visualizeTree (d+1) r
           i = replicate (d*2) ' '
 
-a = finiteParser (pratter 0)
-e = finiteParser (stringP "atleast" <* ws)
+a = (pratter 0)
+e = (stringP "atleast" <* ws)
 b = spanP (/=';') <* charP ';' <* ws
-c = b >>= a
-f = b >>= e
+c = b >>> a
+f = b >>> e
 d = (,,) <$> f <*> f <*> c
 
 test i = putStr $ (++"\n") $ visualizeTree 0 a
