@@ -278,12 +278,14 @@ selectBracketed sI eI n = (charP eI <|> charP sI) >>= f
                        then z [] (n+1)
                        else z [b] (n+1)
 
-statementParser :: Parser BStatement
-statementParser = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
-                  <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> statementParser)
+bStatement :: Parser BStatement
+bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
+                  <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement)
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                  newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>> bRValue))
-                  <|> fmap Block (selectBracketed '{' '}' 0 >>> (repeatedParser (ws *> statementParser)))
+                  <|> fmap Block (selectBracketed '{' '}' 0 >>> repeatedParser (ws *> bStatement))
+                  <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
+                                 newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
