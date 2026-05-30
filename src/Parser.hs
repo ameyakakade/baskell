@@ -216,7 +216,7 @@ f >>> g = Parser $ \input -> do
             let (l, c, i) = input
             let a = startParser g s
             case a of
-              Right (r, (l', c', i')) -> if i' == []
+              Right (r, (l', c', i')) -> if null i'
                                          then Right (r, restIn)
                                          else Left (["Unexpected string, "++i'], (l+l', c+c', i))
               Left (err, (l', c', i'))  -> Left (err, (l+l', c+c', i))
@@ -295,8 +295,8 @@ visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i 
           ro = visualizeTree (d+1) r
           i = replicate (d*2) ' '
 
-a = (pratter 0)
-e = (stringP "atleast" <* ws)
+a = pratter 0
+e = stringP "atleast" <* ws
 b = spanP (/=';') <* charP ';' <* ws
 c = b >>> a
 f = b >>> e
@@ -305,12 +305,3 @@ d = (,,) <$> f <*> f <*> c
 test i = putStr $ (++"\n") $ visualizeTree 0 a
          where r = startParser (pratter 0) i
                (Right (a,_)) = r
-
-splitOn :: (Eq a) => a -> [a] -> [[a]]
-splitOn delim = foldr (splitOnHelper delim) [[]]
-
-splitOnHelper :: (Eq a) => a -> (a -> [[a]] -> [[a]])
-splitOnHelper delim x acc = if x==delim then
-                              []:acc
-                            else
-                              (x : acc!!0):drop 1 acc 
