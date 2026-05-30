@@ -221,15 +221,13 @@ f >>> g = Parser $ \input -> do
                                          else Left (["Unexpected string, "++i'], (l+l', c+c', i))
               Left (err, (l', c', i'))  -> Left (err, (l+l', c+c', i))
 
--- this function takes a parser and keeps running it till the input
--- is empty. best combined with finite parsers
 repeatedParser :: Parser a -> Parser [a]
-repeatedParser parser = parser >>= f
-    where f s = Parser $ \(l,r,i) -> if i/=[]
-                then do
-                  (a, restIn) <- runParser (repeatedParser parser) (l,r,i)
-                  return (s:a, restIn)
-                else return ([s], (l,r,i))
+repeatedParser parser = Parser $ \(l,r,i) -> if i/=[]
+                                             then do
+                                               (b, restIn) <- runParser parser (l,r,i)
+                                               (bs, restIn') <- runParser (repeatedParser parser) restIn
+                                               return (b:bs, restIn')
+                                             else return ([], (l,r,i))
 
 pratter :: Int -> Parser BRValue
 pratter minBP = bSingleRValue >>= loop
