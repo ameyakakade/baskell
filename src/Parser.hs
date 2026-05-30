@@ -16,7 +16,7 @@ data BIVal = IConstant BConstant
            | IName BName
            deriving (Eq, Show)
 
-data BStatement = Auto     [(BName, BConstant)]
+data BStatement = Auto     [(BName, Maybe BConstant)]
                 | Extrn    [BName]
                 | Default  [(BConstant, BStatement)] -- TODO: Confirm if this correct
                 | Case     [(BConstant, BStatement)]
@@ -286,6 +286,10 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                   <|> fmap Block (selectBracketed '{' '}' 0 >>> repeatedParser (ws *> bStatement))
                   <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
+                  <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected extrn." *> ws *>
+                                 newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> fmap (\x -> if null x then Nothing else Just (x!!0))
+                                                                                                      (repeatedParser bConstant)
+                                                                                              in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
