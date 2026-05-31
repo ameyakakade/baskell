@@ -179,28 +179,9 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
                   <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected extrn." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> fmap (\x -> if null x then Nothing else Just (x!!0))
-                                                                                                      (repeatedParser bConstant)
-                                                                                              in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
+                                                                                                             (repeatedParser bConstant)
+                                                                                                     in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
 
 bDefinition :: Parser BDefinition
 bDefinition = fmap FDefinition $ ((,,) <$> (bName <* ws) <*>
                                  (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws) >>> (repeatedParser (spanP (==',') *> ws *> bName <* ws)) )) <*> bStatement
-
-visualizeTree :: Int -> BRValue -> String
-visualizeTree d (RConstant a) = show a
-visualizeTree d (Binary (l,o,r)) = i ++ so ++ "\n" ++ i ++ i ++ lo ++ "\n" ++ i ++ i ++ ro
-    where so = show o
-          lo = visualizeTree (d+1) l
-          ro = visualizeTree (d+1) r
-          i = replicate (d*2) ' '
-
-a = pratter 0
-e = stringP "atleast" <* ws
-b = spanP (/=';') <* charP ';' <* ws
-c = b >>> a
-f = b >>> e
-d = (,,) <$> f <*> f <*> c
-
-test i = putStr $ (++"\n") $ visualizeTree 0 a
-         where r = startParser (pratter 0) i
-               (Right (a,_)) = r
