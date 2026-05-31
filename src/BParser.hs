@@ -11,7 +11,7 @@ type Input = (Int, Int, String)
 newtype BProgram = Program [BDefinition]
               deriving (Eq, Show)
 
-data BDefinition = BDefinition
+data BDefinition = FDefinition (BName, [BName], BStatement)
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -41,7 +41,7 @@ data BRValue = BracketRValue BRValue
              | GetAddress    BLValue
              | Binary        (BRValue, BBinary, BRValue)
              | Ternary       (BRValue, BRValue, BRValue)
-             -- TODO
+             | FunctionCall  (BRValue, [BRValue])
              deriving (Eq, Show)
 
           -- left binding power, right binding power
@@ -157,6 +157,8 @@ bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spa
 bRValue :: Parser BRValue
 bRValue = pratter 0
           <|> fmap Assignment ((,,) <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue)
+          <|> fmap FunctionCall ((,) <$> bSingleRValue <*> 
+                  (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws) >>> (repeatedParser (spanP (==',') *> ws *> bRValue <* ws)) ))
 
 bLValue :: Parser BLValue
 bLValue = fmap LName bName
@@ -172,7 +174,7 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                   <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement)
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                  newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>> bRValue))
-                  <|> fmap Block (selectBracketed '{' '}' 0 >>> repeatedParser (ws *> bStatement))
+                  <|> fmap Block (selectBracketed '{' '}' 0 >>> (repeatedParser (ws *> bStatement <* ws) ))
                   <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
                   <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected extrn." *> ws *>
@@ -181,7 +183,8 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                                                                                               in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
 
 bDefinition :: Parser BDefinition
-bDefinition = undefined
+bDefinition = fmap FDefinition $ ((,,) <$> (bName <* ws) <*>
+                                 (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws) >>> (repeatedParser (spanP (==',') *> ws *> bName <* ws)) )) <*> bStatement
 
 visualizeTree :: Int -> BRValue -> String
 visualizeTree d (RConstant a) = show a
