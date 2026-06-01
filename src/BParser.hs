@@ -148,9 +148,9 @@ bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast 
             <|> fmap Chars (charP '"' *> spanP (/='"') <* charP '"')
 
 bName :: Parser BName
-bName = Parser $ \i -> do
-          (r, (loc,s)) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum) i
-          return (BName r loc, (loc,s))
+bName = Parser $ \(loc, i) -> do
+          (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum) (loc, i)
+          return (BName r loc, restIn)
 
 bRValue :: Parser BRValue
 bRValue = pratter 0

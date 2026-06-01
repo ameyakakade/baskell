@@ -76,22 +76,25 @@ ws = spanP isSpace
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
+-- adds a single char for '>>>'
+-- so that length of the input isnt changed
 selectBracketed :: Char -> Char -> Int -> Parser String
-selectBracketed sI eI n = (charP eI <|> charP sI) >>= f
-    where p c = c /= sI && c /= eI
-          f b = Parser $ \i ->
-                let z bs ns = do
-                      (s, restIn) <- runParser (spanP p) i
-                      (a, restIn') <- runParser (selectBracketed sI eI ns) restIn
-                      Right (bs++s++a, restIn')
-                in
-                  if b==eI
-                  then if n == 1
-                       then Right ([], i)
-                       else z [b] (n-1)
-                  else if n == 0
-                       then z [] (n+1)
-                       else z [b] (n+1)
+selectBracketed sI eI n = fmap (' ':) (sbh sI eI n)
+    where sbh sI eI n = (charP eI <|> charP sI) >>= f
+              where p c = c /= sI && c /= eI
+                    f b = Parser $ \i ->
+                          let z bs ns = do
+                                (s, restIn) <- runParser (spanP p) i
+                                (a, restIn') <- runParser (sbh sI eI ns) restIn
+                                Right (bs++s++a, restIn')
+                          in
+                            if b==eI
+                            then if n == 1
+                                 then Right ([], i)
+                                 else z [b] (n-1)
+                            else if n == 0
+                                 then z [] (n+1)
+                                 else z [b] (n+1)
 
 repeatedParser :: Parser a -> Parser [a]
 repeatedParser parser = Parser $ \(c,i) -> if i/=[]
@@ -101,6 +104,8 @@ repeatedParser parser = Parser $ \(c,i) -> if i/=[]
                                                return (b:bs, restIn')
                                              else return ([], (c,i))
 
+-- make sure the string parser doesn't change the start of the input
+-- this will lead to incorrect error reporting
 (>>>) :: Parser String -> Parser b -> Parser b
 f >>> g = Parser $ \input -> do
             (s, restIn) <- runParser f input
