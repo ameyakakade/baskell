@@ -5,13 +5,9 @@ import Parser
 import Data.Char
 import Control.Applicative
 
---           line  col  input
-type Input = (Int, Int, String)
+type BProgram = [BDefinition]
 
-newtype BProgram = Program [BDefinition]
-              deriving (Eq, Show)
-
-data BDefinition = FDefinition (BName, [BName], BStatement)
+data BDefinition = FDefinition BName [BName] BStatement
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -23,9 +19,9 @@ data BStatement = Auto     [(BName, Maybe BConstant)]
                 | Default  [(BConstant, BStatement)] -- TODO: Confirm if this correct
                 | Case     [(BConstant, BStatement)]
                 | Block    [BStatement]
-                | IfElse   (BRValue, BStatement, BStatement)
-                | While    (BRValue, BStatement)
-                | Switch   (BRValue, BStatement)
+                | IfElse   BRValue BStatement BStatement
+                | While    BRValue BStatement
+                | Switch   BRValue BStatement
                 | Goto     BRValue
                 | Return   BRValue
                 | SRValue  BRValue
@@ -34,14 +30,14 @@ data BStatement = Auto     [(BName, Maybe BConstant)]
 data BRValue = BracketRValue BRValue
              | RLValue       BLValue
              | RConstant     BConstant
-             | Assignment    (BLValue, BAssign, BRValue)
-             | IncDecPre     (BIncDec, BLValue)
-             | IncDecPost    (BLValue, BIncDec)
-             | RUnary        (BUnary, BRValue)
+             | Assignment    BLValue BAssign BRValue
+             | IncDecPre     BIncDec BLValue
+             | IncDecPost    BLValue BIncDec
+             | RUnary        BUnary BRValue
              | GetAddress    BLValue
-             | Binary        (BRValue, BBinary, BRValue)
-             | Ternary       (BRValue, BRValue, BRValue)
-             | FunctionCall  (BRValue, [BRValue])
+             | Binary        BRValue BBinary BRValue
+             | Ternary       BRValue BRValue BRValue
+             | FunctionCall  BRValue [BRValue]
              deriving (Eq, Show)
 
           -- left binding power, right binding power
@@ -90,24 +86,24 @@ data BConstant = Digit Int
                | Chars String
                deriving (Eq, Show)
 
-newtype BName = Name String
+data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
 
 pratter :: Int -> Parser BRValue
 pratter minBP = bSingleRValue >>= loop
     where loop lhs = Parser
-                     $ \(l,c,i) ->
+                     $ \(c,i) ->
                          if null i
-                         then Right (lhs, (l,c,i))
+                         then Right (lhs, (c,i))
                          else do
-                           let input = (l,c,i)
+                           let input = (c,i)
                            (op, restIn) <- runParser bBinary input
                            let (lbp, rbp) = bindingPower op
                            if lbp<minBP
                            then Right (lhs, input)
                            else do
                              (rhs, restIn') <- runParser (pratter rbp) restIn
-                             (flhs, restIn'') <- runParser (loop (Binary (lhs, op, rhs))) restIn'
+                             (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
                              Right (flhs, restIn'')
 
 bIVal :: Parser BIVal
@@ -152,13 +148,15 @@ bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast 
             <|> fmap Chars (charP '"' *> spanP (/='"') <* charP '"')
 
 bName :: Parser BName
-bName = fmap Name $ fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum
+bName = Parser $ \i -> do
+          (r, (loc,s)) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum) i
+          return (BName r loc, (loc,s))
 
 bRValue :: Parser BRValue
 bRValue = pratter 0
-          <|> fmap Assignment ((,,) <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue)
-          <|> fmap FunctionCall ((,) <$> bSingleRValue <*> 
-                  (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws) >>> (repeatedParser (spanP (==',') *> ws *> bRValue <* ws)) ))
+          <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
+          <|> FunctionCall <$> bSingleRValue <*> 
+                  (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws) >>> (repeatedParser (spanP (==',') *> ws *> bRValue <* ws)) )
 
 bLValue :: Parser BLValue
 bLValue = fmap LName bName
@@ -171,7 +169,7 @@ bSingleRValue = fmap RLValue bLValue
 
 bStatement :: Parser BStatement
 bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
-                  <|> fmap While ((,) <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement)
+                  <|> While <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                  newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>> bRValue))
                   <|> fmap Block (selectBracketed '{' '}' 0 >>> (repeatedParser (ws *> bStatement <* ws) ))
@@ -183,5 +181,9 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                                                                                                      in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
 
 bDefinition :: Parser BDefinition
-bDefinition = fmap FDefinition $ ((,,) <$> (bName <* ws) <*>
-                                 (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws) >>> (repeatedParser (spanP (==',') *> ws *> bName <* ws)) )) <*> bStatement
+bDefinition = FDefinition <$> (bName <* ws) <*>
+                                 (charP '(' *> ws *> (spanP (/=')') <* charP ')' <* ws)
+                                            >>> (repeatedParser (spanP (==',') *> ws *> bName <* ws)) ) <*> bStatement
+
+bProgram :: Parser BProgram
+bProgram = repeatedParser (ws *> bDefinition <* ws)
