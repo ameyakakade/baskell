@@ -76,8 +76,9 @@ ws = spanP isSpace
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
--- adds a single char for '>>>'
+-- adds a single ' ' for '>>>'
 -- so that length of the input isnt changed
+-- MAKE SURE TO PARSE THE SPACE
 selectBracketed :: Char -> Char -> Int -> Parser String
 selectBracketed sI eI n = fmap (' ':) (sbh sI eI n)
     where sbh sI eI n = (charP eI <|> charP sI) >>= f
