@@ -14,8 +14,8 @@ data Arg = AutoVar     Word
          | Literal     Word -- has to be word
          | DataOffset  Word
            deriving (Show)
-    
-           
+
+
 data BinOp = Plus
            | Minus
            | Mult
@@ -32,16 +32,16 @@ data BinOp = Plus
            | BitShl
            | BitShr
              deriving (Show)
-             
-data Op = UnaryNot        Word   Arg          -- result, arg 
+
+data Op = UnaryNot        Word   Arg          -- result, arg
         | Negate          Word   Arg          -- result, arg
         | OpBin           BinOp  Word Arg Arg -- binop, index, lhs, rhs
         | Index           Word   Arg  Arg     -- result, arg, offset
         | AutoAssign      Word   Arg          -- index, arg
         | ExternalAssign  String Arg          -- name, arg
-        | Store           Word   Arg          -- index, arg 
-        | Funcall         Word   Arg  [Arg]   -- result, fn, args 
-        | Label           Word                -- label 
+        | Store           Word   Arg          -- index, arg
+        | Funcall         Word   Arg  [Arg]   -- result, fn, args
+        | Label           Word                -- label
         | JmpLabel        Word                -- label
         | JmpIfNotLabel   Word   Arg          -- label
         | Return          (Maybe Arg)         -- arg
