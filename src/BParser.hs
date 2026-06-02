@@ -7,7 +7,7 @@ import Control.Applicative
 
 type BProgram = [BDefinition]
 
-data BDefinition = FDefinition BName [BName] BStatement
+data BDefinition = FDefinition {fName :: BName, fArgs :: [BName], fStatement :: BStatement}
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
