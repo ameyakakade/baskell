@@ -14,7 +14,7 @@ data BIVal = IConstant BConstant
            | IName BName
            deriving (Eq, Show)
 
-data BStatement = Auto     [(BName, Maybe BConstant)]
+data BStatement = Auto     [(BName, Maybe Int)]
                 | Extrn    [BName]
                 | Default  [(BConstant, BStatement)] -- TODO: Confirm if this correct
                 | Case     [(BConstant, BStatement)]
@@ -178,10 +178,11 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                   <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
                   <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected extrn." *> ws *>
-                                 newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> fmap (\x -> if null x then Nothing else Just (x!!0))
-                                                                                                             (repeatedParser bConstant)
+                                 newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> (parseNum)
                                                                                                      in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
-
+parseNum :: Parser (Maybe Int)
+parseNum = (\s -> if null s then Nothing else Just (read s)) <$> (spanP isNumber)
+           
 bDefinition :: Parser BDefinition
 bDefinition = newErr "Expected a definition"
               $ FDefinition <$> (bName <* ws) <*>
