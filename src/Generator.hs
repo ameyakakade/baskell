@@ -5,6 +5,7 @@ module Generator where
 import BParser
 import Parser
 import Data.Word
+import Data.Function
 
 data Arg = AutoVar     Word
          | Deref       Word
@@ -52,10 +53,9 @@ data ScopeEvent = Declare {declName :: String, declIndex :: Int}
                 | BlockEnd Int
                   deriving (Eq, Show)
 
-data Storage = Storage {
-      storageExternal :: String,
-      storageAuto :: Int
-    } deriving (Eq, Show)
+data Storage = StorageExternal String
+             | StorageAuto Int
+               deriving (Eq, Show)
 
 data Var = Var {
       varName :: String,
@@ -112,7 +112,15 @@ deallocateAutoVariable :: Compiler -> Compiler
 deallocateAutoVariable c = c { cAutoVarCount = count}
     where count = cAutoVarCount c - 1
 
-declareVar
+declareVarExtrn :: BName -> Compiler -> Compiler
+declareVarExtrn n c = c { vars = newStack:sts }
+    where newStack = newVar:st
+          newVar = Var (name n) (StorageExternal (name n)) (nameLoc n)
+          sts = drop 1 (vars c)
+          [st] = take 1 (vars c)
+
+declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
+declareVarAuto = undefined
               
 gProgram :: BProgram -> Compiler
 gProgram a = foldr gDefinition (initCompiler a) a
@@ -125,28 +133,45 @@ gFunction bname args block c = emptyCompiler { program = newProgram, errors = (e
     where nc = gStatement c block
           newFunc = Function (name bname)
                     (nameLoc bname)
-                    (functionBody c)
+                    (functionBody nc)
                     (length args)
-                    (cAutoVarCountMax c)
-                    (functionScopeEvents c)
+                    (cAutoVarCountMax nc)
+                    (functionScopeEvents nc)
           newProgram = let irp = program c in irp { functions = newFunc:functions irp }
 
 gStatement :: Compiler -> BStatement -> Compiler
 gStatement c statement = case statement of
                                Block   a -> gBlock c a
-                               Extrn   a -> undefined
+                               Extrn   a -> gExtrn c a
                                SRValue a -> gRValue c a
 
 gBlock :: Compiler -> [BStatement] -> Compiler
-gBlock ss = undefined
+gBlock c ss = c'' { cAutoVarCount = autoVarC }
+    where c' = blockBegin c
+          autoVarC = cAutoVarCount c
+          c'' = c' & \x -> foldl' gStatement x ss & blockEnd (functionBlocksCount c)
+
+blockBegin :: Compiler -> Compiler
+blockBegin c = c { vars = []:(vars c), functionBlocksCount = 1+(functionBlocksCount c), functionScopeEvents = (functionScopeEvents c)++[newScopeEvent] }
+    where newScopeEvent = BlockBegin (functionBlocksCount c)
+
+blockEnd :: Int -> Compiler -> Compiler
+blockEnd blockID c = c { vars = (drop 1 $ vars c), functionBlocksCount = (functionBlocksCount c) - 1, functionScopeEvents = (functionScopeEvents c)++[newScopeEvent] }
+    where newScopeEvent = BlockEnd blockID
+
+gExtrn :: Compiler -> [BName] -> Compiler
+gExtrn = foldr declareVarExtrn
 
 gRValue :: Compiler -> BRValue -> Compiler
-gRValue fs rvalue = case rvalue of
+gRValue c rvalue = case rvalue of
                       FunctionCall f args -> undefined
+
+tee2 = [FDefinition (BName {name = "main", nameLoc = 0}) []
+        (Block [Extrn [BName {name = "hi", nameLoc = 18}], Extrn [BName {name = "yup", nameLoc = 40}]])]
 
 tee = [FDefinition (BName {name = "main", nameLoc = 0}) []
        (Block [Extrn [BName {name = "hi", nameLoc = 18}]
-              ,SRValue (FunctionCall (RLValue (LName (BName {name = "hi", nameLoc = 26}))) [])])]
+              ,SRValue ((RLValue (LName (BName {name = "hi", nameLoc = 26}))))])]
 
 -- teeparsed = IRProgram [BName {name = "main", nameLoc = 0}] f sd ex
 --     where f = [(Function "main" bo 0 0 0)]
