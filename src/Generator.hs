@@ -105,34 +105,49 @@ emptyCompiler = Compiler (IRProgram [] [] []) [] [] [] [] [] 0 0 0
 
 
 initCompiler :: BProgram -> Compiler
-initCompiler a = emptyCompiler { functionNames = (map fName a) }
+initCompiler a = emptyCompiler { functionNames = map fName a }
 
-allocateAutoVariable :: Compiler -> Compiler
-allocateAutoVariable c = c { cAutoVarCount = count, cAutoVarCountMax = max (cAutoVarCountMax c) count }
-    where count = cAutoVarCount c + 1
+allocateAutoVariable :: Int -> Compiler -> Compiler
+allocateAutoVariable i c = c { cAutoVarCount = count, cAutoVarCountMax = max (cAutoVarCountMax c) count }
+    where count = cAutoVarCount c + i
 
-deallocateAutoVariable :: Compiler -> Compiler
-deallocateAutoVariable c = c { cAutoVarCount = count}
-    where count = cAutoVarCount c - 1
+deallocateAutoVariable :: Int -> Compiler -> Compiler
+deallocateAutoVariable i c = c { cAutoVarCount = count}
+    where count = cAutoVarCount c - i
 
 declareVarExtrn :: BName -> Compiler -> Compiler
-declareVarExtrn n c = if isNothing (findVar c (name n))  then c { vars = newStack:sts } else addError c ("Redefinition of variable '" ++ (name n) ++ "'")
+declareVarExtrn n c = if isNothing (findVar (name n) c)
+                      then c { vars = newStack:sts }
+                      else addError ("Redefinition of variable '" ++ name n ++ "'") c
     where newStack = newVar:st
           newVar = Var (name n) (StorageExternal (name n)) (nameLoc n)
           sts = drop 1 (vars c)
           [st] = take 1 (vars c)
 
 declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
-declareVarAuto = undefined
+declareVarAuto (n, size) c = if isNothing (findVar (name n) c)
+                             then c' { vars = newStack:sts, functionScopeEvents = functionScopeEvents c ++ [newScopeEvent]}
+                             else addError ("Redefinition of variable '" ++ name n ++ "'") c
+    where newStack = newVar:st
+          newVar = Var (name n) (StorageAuto (cAutoVarCount c)) (nameLoc n)
+          sts = drop 1 (vars c)
+          [st] = take 1 (vars c)
+          c' = allocateAutoVariable (if isNothing size then 1 else fromJust size) c
+          newScopeEvent = Declare (name n) (cAutoVarCount c)
 
-addOp :: Compiler -> Op -> Compiler
-addOp c o = c { functionBody = (functionBody c) ++ [newOp] }
+addOp :: Op -> Compiler -> Compiler
+addOp o c = c { functionBody = functionBody c ++ [newOp] }
     where newOp = OpWithLocation o (length (functionScopeEvents c))
 
-addError :: Compiler -> String -> Compiler
-addError c s = c { errors = (errors c) ++ [s] }
+addError :: String -> Compiler -> Compiler
+addError s c = c { errors = errors c ++ [s] }
 
-bogusArg = External "This argument does not exist"
+bogusArg = External "bogusArgument"
+
+findVar :: String -> Compiler -> Maybe Var
+findVar n c = if null fv then Nothing else Just (head fv)
+    where findVar = find (\x -> varName x == n)
+          fv = mapMaybe findVar (vars c)
 
 gProgram :: BProgram -> Compiler
 gProgram a = foldr gDefinition (initCompiler a) a
@@ -141,20 +156,23 @@ gDefinition :: BDefinition -> Compiler -> Compiler
 gDefinition (FDefinition name args block) = gFunction name args block
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
-gFunction bname args block c = emptyCompiler { program = newProgram, errors = (errors nc), functionNames = (functionNames nc) }
+gFunction bname args block c = emptyCompiler { program = newProgram, errors = errors nc, functionNames = functionNames nc }
     where nc = gStatement c block
+
           newFunc = Function (name bname)
                     (nameLoc bname)
                     (functionBody nc)
                     (length args)
                     (cAutoVarCountMax nc)
                     (functionScopeEvents nc)
+
           newProgram = let irp = program c in irp { functions = newFunc:functions irp }
 
 gStatement :: Compiler -> BStatement -> Compiler
 gStatement c statement = case statement of
                                Block   a -> gBlock c a
                                Extrn   a -> gExtrn c a
+                               Auto    a -> gAuto c a
                                SRValue a -> gRValue c a
 
 gBlock :: Compiler -> [BStatement] -> Compiler
@@ -164,40 +182,38 @@ gBlock c ss = c'' { cAutoVarCount = autoVarC }
           c'' = c' & \x -> foldl' gStatement x ss & blockEnd (functionBlocksCount c)
 
 blockBegin :: Compiler -> Compiler
-blockBegin c = c { vars = []:(vars c), functionBlocksCount = 1+(functionBlocksCount c), functionScopeEvents = (functionScopeEvents c)++[newScopeEvent] }
+blockBegin c = c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c, functionScopeEvents = functionScopeEvents c++[newScopeEvent] }
     where newScopeEvent = BlockBegin (functionBlocksCount c)
 
 blockEnd :: Int -> Compiler -> Compiler
-blockEnd blockID c = c { vars = (drop 1 $ vars c), functionBlocksCount = (functionBlocksCount c) - 1, functionScopeEvents = (functionScopeEvents c)++[newScopeEvent] }
+blockEnd blockID c = c { vars = drop 1 $ vars c, functionBlocksCount = functionBlocksCount c - 1, functionScopeEvents = functionScopeEvents c++[newScopeEvent] }
     where newScopeEvent = BlockEnd blockID
 
 gExtrn :: Compiler -> [BName] -> Compiler
 gExtrn = foldr declareVarExtrn
 
+gAuto :: Compiler -> [(BName, Maybe Int)] -> Compiler
+gAuto = foldr declareVarAuto
+
 gRValue :: Compiler -> BRValue -> Compiler
-gRValue c rvalue = allocateAutoVariable c &            -- use AutoVarCount - 1 to accumulate
+gRValue c rvalue = allocateAutoVariable 1 c &            -- use AutoVarCount - 1 to accumulate
                    \c' -> case rvalue of
 
                       FunctionCall f args -> undefined
 
                       -- RLValue. it takes the arg given by glvalue and assigns it to the acc auto var
                       RLValue a -> gLValue c' a &
-                                   \(ar, c'') -> addOp c'' (AutoAssign (cAutoVarCount c) ar)
+                                   \(ar, c'') -> addOp (AutoAssign (cAutoVarCount c) ar) c''
 
-                   & deallocateAutoVariable
+                   & deallocateAutoVariable 1
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
-                LName n -> let v = findVar c (name n) in if isJust v
-                                                         then ((case (varStorage (fromJust v)) of
+                LName n -> let v = findVar (name n) c in if isJust v
+                                                         then (case varStorage (fromJust v) of
                                                                 StorageExternal s -> External s
-                                                                StorageAuto i -> AutoVar i), c)
-                                                         else (bogusArg, addError c ("Could not find variable '" ++ (name n) ++ "'"))
-
-findVar :: Compiler -> String -> Maybe Var
-findVar c n = if null fv then Nothing else head fv
-    where findVar = find (\x -> (varName x) == n)
-          fv = filter isJust $ foldr (\x acc -> (findVar x):acc) [] (vars c)
+                                                                StorageAuto i -> AutoVar i, c)
+                                                         else (bogusArg, addError ("Could not find variable '" ++ name n ++ "'") c)
 
 tee = [FDefinition (BName {name = "main", nameLoc = 0}) []
        (Block [
@@ -206,6 +222,13 @@ tee = [FDefinition (BName {name = "main", nameLoc = 0}) []
         ,Extrn [BName {name = "hi", nameLoc = 18}]
         ,SRValue ((RLValue (LName (BName {name = "hee", nameLoc = 26}))))
         ])]
+
+teee = [FDefinition {fName = BName {name = "main", nameLoc = 0},
+                     fArgs = [BName {name = "argc", nameLoc = 5}],
+                     fStatement = Block [Auto [(BName {name = "a", nameLoc = 21},Just 10),
+                                               (BName {name = "b", nameLoc = 23},Nothing),
+                                               (BName {name = "c", nameLoc = 25},Nothing)],
+                                         SRValue (RLValue (LName (BName {name = "a", nameLoc = 32})))]}]
 
 -- teeparsed = IRProgram [BName {name = "main", nameLoc = 0}] f sd ex
 --     where f = [(Function "main" bo 0 0 0)]
