@@ -158,7 +158,7 @@ bRValue :: Parser BRValue
 bRValue = pratter 0
           <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
           <|> FunctionCall <$> bSingleRValue <*> 
-                  finiteSelectBracketed '(' ')' (ws *> (repeatedParser (spanP (==',') *> ws *> bRValue <* ws)) <* ws)
+                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> bRValue <* ws) <* ws)
 
 bLValue :: Parser BLValue
 bLValue = fmap LName bName
@@ -167,7 +167,7 @@ bLValue = fmap LName bName
 bSingleRValue :: Parser BRValue
 bSingleRValue = fmap RLValue bLValue
                 <|> fmap RConstant bConstant
-                <|> fmap BracketRValue (ws *> (finiteSelectBracketed '(' ')' bRValue) <* ws)
+                <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
 bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
@@ -178,16 +178,16 @@ bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* ch
                   <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
                   <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected extrn." *> ws *>
-                                 newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> (parseNum)
+                                 newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> parseNum
                                                                                                      in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
 parseNum :: Parser (Maybe Int)
-parseNum = (\s -> if null s then Nothing else Just (read s)) <$> (spanP isNumber)
+parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
            
 bDefinition :: Parser BDefinition
 bDefinition = newErr "Expected a definition"
               $ FDefinition <$> (bName <* ws) <*>
-              (finiteSelectBracketed '(' ')'
-               (ws *> (repeatedParser (spanP (==',') *> ws *> bName <* ws)) <* ws)) <*> bStatement
+              finiteSelectBracketed '(' ')'
+               (ws *> repeatedParser (spanP (==',') *> ws *> bName <* ws) <* ws) <*> bStatement
 
 bProgram :: Parser BProgram
 bProgram = repeatedParser (ws *> bDefinition <* ws)

@@ -67,7 +67,7 @@ spanP predicate = Parser (Right . f)
     f (c, []) = ([], (c, []))
     f (c, x:xs)
       | predicate x = let (ys, (c', zs)) = f (c, xs)
-                          (c'') = c'+1
+                          c'' = c'+1
                       in (x:ys, (c'', zs))
       | otherwise   = ([], (c, x:xs))
 

@@ -105,34 +105,35 @@ emptyCompiler = Compiler (IRProgram [] [] []) [] [] [] [] [] 0 0 0
 
 
 initCompiler :: BProgram -> Compiler
-initCompiler a = emptyCompiler { functionNames = map fName a }
+initCompiler ast = emptyCompiler { functionNames = map fName ast }
 
 allocateAutoVariable :: Int -> Compiler -> Compiler
-allocateAutoVariable i c = c { cAutoVarCount = count, cAutoVarCountMax = max (cAutoVarCountMax c) count }
-    where count = cAutoVarCount c + i
+allocateAutoVariable sizeToAlloc c = c { cAutoVarCount = count, cAutoVarCountMax = max (cAutoVarCountMax c) count }
+    where count = cAutoVarCount c + sizeToAlloc
 
 deallocateAutoVariable :: Int -> Compiler -> Compiler
-deallocateAutoVariable i c = c { cAutoVarCount = count}
-    where count = cAutoVarCount c - i
+deallocateAutoVariable sizeToDealloc c = c { cAutoVarCount = count}
+    where count = cAutoVarCount c - sizeToDealloc
 
 declareVarExtrn :: BName -> Compiler -> Compiler
 declareVarExtrn n c = if isNothing (findVar (name n) c)
-                      then c { vars = newStack:sts }
+                      then c { vars = newStack:remainingScopes, program = newProgram }
                       else addError ("Redefinition of variable '" ++ name n ++ "'") c
-    where newStack = newVar:st
+    where newStack = newVar:uppermostScope
           newVar = Var (name n) (StorageExternal (name n)) (nameLoc n)
-          sts = drop 1 (vars c)
-          [st] = take 1 (vars c)
+          remainingScopes = drop 1 (vars c)
+          [uppermostScope] = take 1 (vars c)
+          newProgram = (program c) { extrns = name n:extrns (program c) }
 
 declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
 declareVarAuto (n, size) c = if isNothing (findVar (name n) c)
-                             then c' { vars = newStack:sts, functionScopeEvents = functionScopeEvents c ++ [newScopeEvent]}
+                             then c' { vars = newStack:remainingScopes, functionScopeEvents = functionScopeEvents c ++ [newScopeEvent]}
                              else addError ("Redefinition of variable '" ++ name n ++ "'") c
-    where newStack = newVar:st
+    where newStack = newVar:uppermostScope
           newVar = Var (name n) (StorageAuto (cAutoVarCount c)) (nameLoc n)
-          sts = drop 1 (vars c)
-          [st] = take 1 (vars c)
-          c' = allocateAutoVariable (if isNothing size then 1 else fromJust size) c
+          remainingScopes = drop 1 (vars c)
+          [uppermostScope] = take 1 (vars c)
+          c' = allocateAutoVariable (fromMaybe 1 size) c
           newScopeEvent = Declare (name n) (cAutoVarCount c)
 
 addOp :: Op -> Compiler -> Compiler
@@ -145,9 +146,9 @@ addError s c = c { errors = errors c ++ [s] }
 bogusArg = External "bogusArgument"
 
 findVar :: String -> Compiler -> Maybe Var
-findVar n c = if null fv then Nothing else Just (head fv)
+findVar n c = if null foundVars then Nothing else Just (head foundVars)
     where findVar = find (\x -> varName x == n)
-          fv = mapMaybe findVar (vars c)
+          foundVars = mapMaybe findVar (vars c)
 
 gProgram :: BProgram -> Compiler
 gProgram a = foldr gDefinition (initCompiler a) a
@@ -156,17 +157,17 @@ gDefinition :: BDefinition -> Compiler -> Compiler
 gDefinition (FDefinition name args block) = gFunction name args block
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
-gFunction bname args block c = emptyCompiler { program = newProgram, errors = errors nc, functionNames = functionNames nc }
-    where nc = gStatement c block
+gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', functionNames = functionNames c' }
+    where c' = gStatement c block
 
           newFunc = Function (name bname)
                     (nameLoc bname)
-                    (functionBody nc)
+                    (functionBody c')
                     (length args)
-                    (cAutoVarCountMax nc)
-                    (functionScopeEvents nc)
+                    (cAutoVarCountMax c')
+                    (functionScopeEvents c')
 
-          newProgram = let irp = program c in irp { functions = newFunc:functions irp }
+          newestProgram = let newProgram = program c' in newProgram { functions = newFunc:functions newProgram }
 
 gStatement :: Compiler -> BStatement -> Compiler
 gStatement c statement = case statement of
@@ -218,9 +219,9 @@ gLValue c l = case l of
 tee = [FDefinition (BName {name = "main", nameLoc = 0}) []
        (Block [
          Extrn [BName {name = "hi", nameLoc = 18}]
-        ,SRValue ((RLValue (LName (BName {name = "hi", nameLoc = 26}))))
-        ,Extrn [BName {name = "hi", nameLoc = 18}]
-        ,SRValue ((RLValue (LName (BName {name = "hee", nameLoc = 26}))))
+        ,SRValue (RLValue (LName (BName {name = "hi", nameLoc = 26})))
+        ,Extrn [BName {name = "h", nameLoc = 18}]
+        ,SRValue (RLValue (LName (BName {name = "hi", nameLoc = 26})))
         ])]
 
 teee = [FDefinition {fName = BName {name = "main", nameLoc = 0},
@@ -233,11 +234,11 @@ prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
             foldr pick (0,"") $
             show s
-    where opening = map (\x -> (x==)) "{[("
-          closing = map (\x -> (x==)) "}])"
-          pick x (ind, str) | x == ','          = (ind, x:'\n':(getInd (ind*2-1))++str)
-                            | any ($ x) opening = (ind-1, x:'\n':(getInd (ind*2))++str)
+    where opening = map (==) "{["
+          closing = map (==) "}]"
+          pick x (ind, str) | x == ','          = (ind, x:'\n':getInd (ind*2-1)++str)
+                            | any ($ x) opening = (ind-1, x:'\n':getInd (ind*2)++str)
                             | any ($ x) closing = (ind+1, x:str)
-                            | x == '\n'         = (ind, x:(getInd (ind*2))++str)
+                            | x == '\n'         = (ind, x:getInd (ind*2)++str)
                             | otherwise         = (ind, x:str)
-          getInd i = take i (repeat ' ')
+          getInd i = replicate i ' '
