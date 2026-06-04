@@ -229,9 +229,15 @@ teee = [FDefinition {fName = BName {name = "main", nameLoc = 0},
                                                (BName {name = "b", nameLoc = 23},Nothing),
                                                (BName {name = "c", nameLoc = 25},Nothing)],
                                          SRValue (RLValue (LName (BName {name = "a", nameLoc = 32})))]}]
-
--- teeparsed = IRProgram [BName {name = "main", nameLoc = 0}] f sd ex
---     where f = [(Function "main" bo 0 0 0)]
---           bo = [Funcall 0 (External "hi") []]
---           sd = []
---           ex = ["hi"]
+prettyier :: (Show a) => a -> IO ()
+prettyier s = putStrLn $ snd $
+            foldr pick (0,"") $
+            show s
+    where opening = map (\x -> (x==)) "{[("
+          closing = map (\x -> (x==)) "}])"
+          pick x (ind, str) | x == ','          = (ind, x:'\n':(getInd (ind*2-1))++str)
+                            | any ($ x) opening = (ind-1, x:'\n':(getInd (ind*2))++str)
+                            | any ($ x) closing = (ind+1, x:str)
+                            | x == '\n'         = (ind, x:(getInd (ind*2))++str)
+                            | otherwise         = (ind, x:str)
+          getInd i = take i (repeat ' ')
