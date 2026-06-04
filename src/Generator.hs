@@ -5,9 +5,11 @@ module Generator where
 import BParser
 import Parser
 import Data.Word
+import Data.List
+import Data.Maybe
 import Data.Function
 
-data Arg = AutoVar     Word
+data Arg = AutoVar     Int
          | Deref       Word
          | RefAutoVar  Word
          | RefExternal String
@@ -37,10 +39,10 @@ data BinOp = Plus
 data Op = UnaryNot        Word   Arg          -- result, arg
         | Negate          Word   Arg          -- result, arg
         | OpBin           BinOp  Word Arg Arg -- binop, index, lhs, rhs
-        | Index           Word   Arg  Arg     -- result, arg, offset
-        | AutoAssign      Word   Arg          -- index, arg
+        | Index           Int   Arg  Arg      -- result, arg, offset
+        | AutoAssign      Int   Arg           -- index, arg
         | ExternalAssign  String Arg          -- name, arg
-        | Store           Word   Arg          -- index, arg
+        | Store           Int   Arg           -- index, arg
         | Funcall         Word   Arg  [Arg]   -- result, fn, args
         | Label           Word                -- label
         | JmpLabel        Word                -- label
@@ -101,6 +103,7 @@ data Compiler = Compiler {
 
 emptyCompiler = Compiler (IRProgram [] [] []) [] [] [] [] [] 0 0 0
 
+
 initCompiler :: BProgram -> Compiler
 initCompiler a = emptyCompiler { functionNames = (map fName a) }
 
@@ -113,7 +116,7 @@ deallocateAutoVariable c = c { cAutoVarCount = count}
     where count = cAutoVarCount c - 1
 
 declareVarExtrn :: BName -> Compiler -> Compiler
-declareVarExtrn n c = c { vars = newStack:sts }
+declareVarExtrn n c = if isNothing (findVar c (name n))  then c { vars = newStack:sts } else addError c ("Redefinition of variable '" ++ (name n) ++ "'")
     where newStack = newVar:st
           newVar = Var (name n) (StorageExternal (name n)) (nameLoc n)
           sts = drop 1 (vars c)
@@ -121,7 +124,16 @@ declareVarExtrn n c = c { vars = newStack:sts }
 
 declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
 declareVarAuto = undefined
-              
+
+addOp :: Compiler -> Op -> Compiler
+addOp c o = c { functionBody = (functionBody c) ++ [newOp] }
+    where newOp = OpWithLocation o (length (functionScopeEvents c))
+
+addError :: Compiler -> String -> Compiler
+addError c s = c { errors = (errors c) ++ [s] }
+
+bogusArg = External "This argument does not exist"
+
 gProgram :: BProgram -> Compiler
 gProgram a = foldr gDefinition (initCompiler a) a
 
@@ -163,15 +175,37 @@ gExtrn :: Compiler -> [BName] -> Compiler
 gExtrn = foldr declareVarExtrn
 
 gRValue :: Compiler -> BRValue -> Compiler
-gRValue c rvalue = case rvalue of
+gRValue c rvalue = allocateAutoVariable c &            -- use AutoVarCount - 1 to accumulate
+                   \c' -> case rvalue of
+
                       FunctionCall f args -> undefined
 
-tee2 = [FDefinition (BName {name = "main", nameLoc = 0}) []
-        (Block [Extrn [BName {name = "hi", nameLoc = 18}], Extrn [BName {name = "yup", nameLoc = 40}]])]
+                      -- RLValue. it takes the arg given by glvalue and assigns it to the acc auto var
+                      RLValue a -> gLValue c' a &
+                                   \(ar, c'') -> addOp c'' (AutoAssign (cAutoVarCount c) ar)
+
+                   & deallocateAutoVariable
+
+gLValue :: Compiler -> BLValue -> (Arg, Compiler)
+gLValue c l = case l of
+                LName n -> let v = findVar c (name n) in if isJust v
+                                                         then ((case (varStorage (fromJust v)) of
+                                                                StorageExternal s -> External s
+                                                                StorageAuto i -> AutoVar i), c)
+                                                         else (bogusArg, addError c ("Could not find variable '" ++ (name n) ++ "'"))
+
+findVar :: Compiler -> String -> Maybe Var
+findVar c n = if null fv then Nothing else head fv
+    where findVar = find (\x -> (varName x) == n)
+          fv = filter isJust $ foldr (\x acc -> (findVar x):acc) [] (vars c)
 
 tee = [FDefinition (BName {name = "main", nameLoc = 0}) []
-       (Block [Extrn [BName {name = "hi", nameLoc = 18}]
-              ,SRValue ((RLValue (LName (BName {name = "hi", nameLoc = 26}))))])]
+       (Block [
+         Extrn [BName {name = "hi", nameLoc = 18}]
+        ,SRValue ((RLValue (LName (BName {name = "hi", nameLoc = 26}))))
+        ,Extrn [BName {name = "hi", nameLoc = 18}]
+        ,SRValue ((RLValue (LName (BName {name = "hee", nameLoc = 26}))))
+        ])]
 
 -- teeparsed = IRProgram [BName {name = "main", nameLoc = 0}] f sd ex
 --     where f = [(Function "main" bo 0 0 0)]
