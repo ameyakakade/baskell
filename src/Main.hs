@@ -3,6 +3,7 @@ module Main where
 import Parser
 import BParser
 import Generator
+import TargetGasAArch64MacOS
 
 main :: IO ()
 main = putStrLn "Hello Sailor"
@@ -17,3 +18,7 @@ compileFile fileName = do
   let irp = gProgram r
   putStrLn "\nIR:"
   prettyier irp
+  putStrLn "\nASM:"
+  let asmo = asm (snd irp)
+  putStrLn asmo
+  writeFile "as.s" asmo

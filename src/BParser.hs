@@ -158,7 +158,7 @@ bRValue :: Parser BRValue
 bRValue = pratter 0
           <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
           <|> FunctionCall <$> bSingleRValue <*> 
-                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> bRValue <* ws) <* ws)
+                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> bSingleRValue <* ws) <* ws)
 
 bLValue :: Parser BLValue
 bLValue = fmap LName bName

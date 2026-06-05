@@ -51,11 +51,6 @@ data Op = UnaryNot        Word   Arg          -- result, arg
         | Return          (Maybe Arg)         -- arg
           deriving (Eq, Show)
 
-data ScopeEvent = Declare {declName :: String, declIndex :: Int}
-                | BlockBegin Int -- this is the block number
-                | BlockEnd Int
-                  deriving (Eq, Show)
-
 data Storage = StorageExternal String
              | StorageAuto Int
                deriving (Eq, Show)
@@ -66,18 +61,12 @@ data Var = Var {
       varLoc :: Int
     } deriving (Eq, Show)
 
-data OpWithLocation = OpWithLocation {
-      opCode :: Op,
-      scopeEventsCount :: Int
-    } deriving (Eq, Show)
-
 data Function = Function {
       funName :: String,
       funLoc :: Int,
-      body :: [OpWithLocation],
-      paramsCount :: Int,
-      autoVarCount :: Int,
-      scopeEvents :: [ScopeEvent]
+      body :: [Op],
+      paramsCount :: Word,
+      autoVarCount :: Word
     } deriving (Eq, Show)
 
 data IRProgram = IRProgram {
@@ -94,16 +83,14 @@ data Compiler = Compiler {
 
       functionNames :: [BName],
 
-      functionBody :: [OpWithLocation],
-      functionScopeEvents :: [ScopeEvent],
+      functionBody :: [Op],
       functionBlocksCount :: Int,
 
       cAutoVarCount :: Int,
       cAutoVarCountMax :: Int
     } deriving (Eq, Show)
 
-emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] [] 0 0 0
-
+emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] 0 0 0
 
 initCompiler :: BProgram -> Compiler
 initCompiler ast = emptyCompiler { functionNames = map fName ast }
@@ -130,18 +117,16 @@ declareVarExtrn n c = if isNothing (findVar (name n) c)
 
 declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
 declareVarAuto (n, size) c = if isNothing (findVar (name n) c)
-                             then c' { vars = newStack:remainingScopes, functionScopeEvents = functionScopeEvents c ++ [newScopeEvent]}
+                             then c' { vars = newStack:remainingScopes }
                              else addError ("Redefinition of variable '" ++ name n ++ "'") c
     where newStack = newVar:uppermostScope
           newVar = Var (name n) (StorageAuto (cAutoVarCount c)) (nameLoc n)
           remainingScopes = drop 1 (vars c)
           [uppermostScope] = take 1 (vars c)
           c' = allocateAutoVariable (fromMaybe 1 size) c
-          newScopeEvent = Declare (name n) (cAutoVarCount c)
 
 addOp :: Op -> Compiler -> Compiler
-addOp o c = c { functionBody = functionBody c ++ [newOp] }
-    where newOp = OpWithLocation o (length (functionScopeEvents c))
+addOp o c = c { functionBody = functionBody c ++ [o] }
 
 addError :: String -> Compiler -> Compiler
 addError s c = c { errors = errors c ++ [s] }
@@ -165,15 +150,14 @@ gDefinition (FDefinition name args block) = gFunction name args block
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
 gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', functionNames = functionNames c' }
-    where c' = foldr (declareVarAuto . (, Nothing)) c args
+    where c' = foldl' (flip $ declareVarAuto . (, Nothing)) c args
                & \x -> gStatement x block
 
           newFunc = Function (name bname)
                     (nameLoc bname)
                     (functionBody c')
-                    (length args)
-                    (cAutoVarCountMax c')
-                    (functionScopeEvents c')
+                    (fromIntegral $ length args)
+                    (fromIntegral $ cAutoVarCountMax c')
 
           newestProgram = let newProgram = program c' in newProgram { functions = newFunc:functions newProgram }
 
@@ -191,12 +175,10 @@ gBlock c ss = c'' { cAutoVarCount = autoVarC }
           c'' = c' & \x -> foldl' gStatement x ss & blockEnd (functionBlocksCount c)
 
 blockBegin :: Compiler -> Compiler
-blockBegin c = c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c, functionScopeEvents = functionScopeEvents c++[newScopeEvent] }
-    where newScopeEvent = BlockBegin (functionBlocksCount c)
+blockBegin c = c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c }
 
 blockEnd :: Int -> Compiler -> Compiler
-blockEnd blockID c = c { vars = drop 1 $ vars c, functionBlocksCount = functionBlocksCount c - 1, functionScopeEvents = functionScopeEvents c++[newScopeEvent] }
-    where newScopeEvent = BlockEnd blockID
+blockEnd blockID c = c { vars = drop 1 $ vars c, functionBlocksCount = functionBlocksCount c - 1 }
 
 gExtrn :: Compiler -> [BName] -> Compiler
 gExtrn = foldr declareVarExtrn
