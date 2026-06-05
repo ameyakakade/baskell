@@ -150,8 +150,12 @@ findVar n c = if null foundVars then Nothing else Just (head foundVars)
     where findVar = find (\x -> varName x == n)
           foundVars = mapMaybe findVar (vars c)
 
-gProgram :: BProgram -> Compiler
-gProgram a = foldr gDefinition (initCompiler a) a
+gProgram :: BProgram -> ([String], IRProgram)
+gProgram p = (errors c, program c)
+    where c = gCompile p
+
+gCompile :: BProgram -> Compiler
+gCompile a = foldr gDefinition (initCompiler a) a
 
 gDefinition :: BDefinition -> Compiler -> Compiler
 gDefinition (FDefinition name args block) = gFunction name args block
@@ -174,7 +178,7 @@ gStatement c statement = case statement of
                                Block   a -> gBlock c a
                                Extrn   a -> gExtrn c a
                                Auto    a -> gAuto c a
-                               SRValue a -> gRValue c a
+                               SRValue a -> gRValue c a & \(_,c') -> deallocateAutoVariable 1 c'
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
@@ -196,17 +200,21 @@ gExtrn = foldr declareVarExtrn
 gAuto :: Compiler -> [(BName, Maybe Int)] -> Compiler
 gAuto = foldr declareVarAuto
 
-gRValue :: Compiler -> BRValue -> Compiler
-gRValue c rvalue = allocateAutoVariable 1 c &            -- use AutoVarCount - 1 to accumulate
-                   \c' -> case rvalue of
+gRValue :: Compiler -> BRValue -> (Arg, Compiler)
+gRValue c rvalue = case rvalue of
+                     FunctionCall f args -> undefined
+                     Assignment l assOp r -> gAssignment c l assOp r
+                     RLValue a -> gLValue c a
+                     RConstant a -> gConstant c a
 
-                      FunctionCall f args -> undefined
-
-                      -- RLValue. it takes the arg given by glvalue and assigns it to the acc auto var
-                      RLValue a -> gLValue c' a &
-                                   \(ar, c'') -> addOp (AutoAssign (cAutoVarCount c) ar) c''
-
-                   & deallocateAutoVariable 1
+gAssignment :: Compiler -> BLValue -> BAssign -> BRValue -> (Arg, Compiler)
+gAssignment c lValue assOp rValue = case assOp of
+                                      Assign -> (lArg, addOp newOp c)
+    where (rArg, c') = gRValue c rValue
+          (lArg, c'') = gLValue c lValue
+          newOp = case lArg of
+                    External a -> ExternalAssign a rArg
+                    AutoVar a -> AutoAssign a rArg
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
@@ -216,20 +224,14 @@ gLValue c l = case l of
                                                                 StorageAuto i -> AutoVar i, c)
                                                          else (bogusArg, addError ("Could not find variable '" ++ name n ++ "'") c)
 
-tee = [FDefinition (BName {name = "main", nameLoc = 0}) []
-       (Block [
-         Extrn [BName {name = "hi", nameLoc = 18}]
-        ,SRValue (RLValue (LName (BName {name = "hi", nameLoc = 26})))
-        ,Extrn [BName {name = "h", nameLoc = 18}]
-        ,SRValue (RLValue (LName (BName {name = "hi", nameLoc = 26})))
-        ])]
+gConstant :: Compiler -> BConstant -> (Arg, Compiler)
+gConstant c constantValue = case constantValue of
+                              Digit a -> (Literal $ fromIntegral a, c)
+                              Char a -> undefined
+                              Chars a -> undefined
 
-teee = [FDefinition {fName = BName {name = "main", nameLoc = 0},
-                     fArgs = [BName {name = "argc", nameLoc = 5}],
-                     fStatement = Block [Auto [(BName {name = "a", nameLoc = 21},Just 10),
-                                               (BName {name = "b", nameLoc = 23},Nothing),
-                                               (BName {name = "c", nameLoc = 25},Nothing)],
-                                         SRValue (RLValue (LName (BName {name = "a", nameLoc = 32})))]}]
+tee = [FDefinition {fName = BName {name = "main", nameLoc = 0}, fArgs = [BName {name = "argc", nameLoc = 5}], fStatement = Block [Auto [(BName {name = "a", nameLoc = 21},Just 10),(BName {name = "b", nameLoc = 26},Nothing),(BName {name = "c", nameLoc = 28},Nothing)],SRValue (Assignment (LName (BName {name = "a", nameLoc = 35})) Assign (RConstant (Digit 10)))]}]
+
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
             foldr pick (0,"") $
