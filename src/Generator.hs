@@ -5,11 +5,12 @@ module Generator where
 import BParser
 import Parser
 import Data.Word
+import Data.Char
 import Data.List
 import Data.Maybe
 import Data.Function
 
-data Arg = AutoVar     Int
+data Arg = AutoVar     Word
          | Deref       Word
          | RefAutoVar  Word
          | RefExternal String
@@ -101,14 +102,16 @@ data Compiler = Compiler {
       cAutoVarCountMax :: Int
     } deriving (Eq, Show)
 
-emptyCompiler = Compiler (IRProgram [] [] []) [] [] [] [] [] 0 0 0
+emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] [] 0 0 0
 
 
 initCompiler :: BProgram -> Compiler
 initCompiler ast = emptyCompiler { functionNames = map fName ast }
 
 allocateAutoVariable :: Int -> Compiler -> Compiler
-allocateAutoVariable sizeToAlloc c = c { cAutoVarCount = count, cAutoVarCountMax = max (cAutoVarCountMax c) count }
+allocateAutoVariable sizeToAlloc c =
+    c { cAutoVarCount = count,
+                        cAutoVarCountMax = max (cAutoVarCountMax c) count }
     where count = cAutoVarCount c + sizeToAlloc
 
 deallocateAutoVariable :: Int -> Compiler -> Compiler
@@ -162,7 +165,8 @@ gDefinition (FDefinition name args block) = gFunction name args block
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
 gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', functionNames = functionNames c' }
-    where c' = gStatement c block
+    where c' = foldr (declareVarAuto . (, Nothing)) c args
+               & \x -> gStatement x block
 
           newFunc = Function (name bname)
                     (nameLoc bname)
@@ -178,7 +182,7 @@ gStatement c statement = case statement of
                                Block   a -> gBlock c a
                                Extrn   a -> gExtrn c a
                                Auto    a -> gAuto c a
-                               SRValue a -> gRValue c a & \(_,c') -> deallocateAutoVariable 1 c'
+                               SRValue a -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
@@ -202,10 +206,18 @@ gAuto = foldr declareVarAuto
 
 gRValue :: Compiler -> BRValue -> (Arg, Compiler)
 gRValue c rvalue = case rvalue of
-                     FunctionCall f args -> undefined
+                     FunctionCall f args -> gFunctionCall f args c
                      Assignment l assOp r -> gAssignment c l assOp r
                      RLValue a -> gLValue c a
                      RConstant a -> gConstant c a
+
+gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
+gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
+    where c' = allocateAutoVariable 1 c
+          (fLocArg, c'') = gRValue c' functionLoc
+          (fArgsArg, c''') = foldr (\a (as,x) -> let (na, nx) = gRValue x a in (na:as, nx)) ([], c'') args
+          autoVarOffset = fromIntegral $ cAutoVarCount c
+          newOp = Funcall autoVarOffset fLocArg fArgsArg
 
 gAssignment :: Compiler -> BLValue -> BAssign -> BRValue -> (Arg, Compiler)
 gAssignment c lValue assOp rValue = case assOp of
@@ -214,23 +226,27 @@ gAssignment c lValue assOp rValue = case assOp of
           (lArg, c'') = gLValue c lValue
           newOp = case lArg of
                     External a -> ExternalAssign a rArg
-                    AutoVar a -> AutoAssign a rArg
+                    AutoVar a -> AutoAssign (fromIntegral a) rArg
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
                 LName n -> let v = findVar (name n) c in if isJust v
                                                          then (case varStorage (fromJust v) of
                                                                 StorageExternal s -> External s
-                                                                StorageAuto i -> AutoVar i, c)
+                                                                StorageAuto i -> AutoVar (fromIntegral i), c)
                                                          else (bogusArg, addError ("Could not find variable '" ++ name n ++ "'") c)
 
 gConstant :: Compiler -> BConstant -> (Arg, Compiler)
 gConstant c constantValue = case constantValue of
                               Digit a -> (Literal $ fromIntegral a, c)
-                              Char a -> undefined
-                              Chars a -> undefined
+                              Char a -> (Literal $ fromIntegral $ ord a, c)
+                              Chars a -> (DataOffset dataLength, c { program = oldProgram { staticData = newStaticData } })
+                                  where oldProgram = program c
+                                        oldStaticData = staticData oldProgram
+                                        newStaticData = oldStaticData++map (fromIntegral . ord) a
+                                        dataLength = fromIntegral $ length oldStaticData
 
-tee = [FDefinition {fName = BName {name = "main", nameLoc = 0}, fArgs = [BName {name = "argc", nameLoc = 5}], fStatement = Block [Auto [(BName {name = "a", nameLoc = 21},Just 10),(BName {name = "b", nameLoc = 26},Nothing),(BName {name = "c", nameLoc = 28},Nothing)],SRValue (Assignment (LName (BName {name = "a", nameLoc = 35})) Assign (RConstant (Digit 10)))]}]
+tee = [FDefinition {fName = BName {name = "main", nameLoc = 0}, fArgs = [BName {name = "argc", nameLoc = 5}], fStatement = Block [Extrn [BName {name = "printf", nameLoc = 22}],SRValue (FunctionCall (RLValue (LName (BName {name = "printf", nameLoc = 34}))) [RConstant (Digit 1)])]}]
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
