@@ -4,9 +4,17 @@ import Parser
 import BParser
 import Generator
 import TargetGasAArch64MacOS
+import System.Environment
 
 main :: IO ()
-main = putStrLn "Hello Sailor"
+main = do
+  (fileName:_) <- getArgs
+  a <- readFile fileName
+  let parsed = startParser bProgram a
+  let (Right (r,_)) = parsed
+  let irp = gProgram r
+  let asmo = asm (snd irp)
+  writeFile "as.s" asmo
 
 compileFile :: String -> IO ()
 compileFile fileName = do

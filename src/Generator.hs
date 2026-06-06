@@ -135,7 +135,7 @@ addError s c = c { errors = errors c ++ [s] }
 bogusArg = External "bogusArgument"
 
 findVar :: String -> Compiler -> Maybe Var
-findVar n c = if null foundVars then Nothing else Just (head foundVars)
+findVar n c = if null foundVars then Nothing else let (hfv:_) = foundVars in Just hfv
     where findVar = find (\x -> varName x == n)
           foundVars = mapMaybe findVar (vars c)
 

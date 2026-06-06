@@ -57,3 +57,4 @@ aArg reg arg = case arg of
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", .dat@PAGEOFF\n" ++
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", #" ++ show doff ++ "\n"
              Literal a -> "MOV X" ++ show reg ++ ", #" ++ show a ++ "\n"
+             AutoVar autoVarOffset -> loadVarFromStack reg autoVarOffset
