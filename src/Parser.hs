@@ -2,6 +2,7 @@ module Parser where
 
 import Data.Char
 import Control.Applicative
+import Data.Either
 
 --           loc  input
 type Input = (Int, String)
@@ -76,13 +77,18 @@ ws = spanP isSpace
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
-selectBracketed :: Char -> Char -> Int -> Parser String
-selectBracketed sI eI n = (charP eI <|> charP sI) >>= f
+
+selectBracketed sI eI n = Parser $ \input -> do
+                            let o = runParser (newErr ("Found " ++ "'" ++ [sI] ++ "'") $ selectBracketedE sI eI n) input
+                            if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
+
+selectBracketedE :: Char -> Char -> Int -> Parser String
+selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
     where p c = c /= sI && c /= eI
           f b = Parser $ \i ->
                 let z bs ns = do
                       (s, restIn) <- runParser (spanP p) i
-                      (a, restIn') <- runParser (selectBracketed sI eI ns) restIn
+                      (a, restIn') <- runParser (selectBracketedE sI eI ns) restIn
                       Right (bs++s++a, restIn')
                 in
                   if b==eI

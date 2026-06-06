@@ -3,6 +3,7 @@ module BParser where
 import Parser
 
 import Data.Char
+import Data.Either
 import Control.Applicative
 
 type BProgram = [BDefinition]
@@ -154,8 +155,12 @@ bName = Parser $ \(loc, i) -> do
           (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum) (loc, i)
           return (BName r loc, restIn)
 
-bRValue :: Parser BRValue
-bRValue = pratter 0
+bRValue = Parser $ \input -> do
+            let o = runParser bRValueE input
+            if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
+
+bRValueE :: Parser BRValue
+bRValueE = pratter 0
           <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
           <|> FunctionCall <$> bSingleRValue <*> 
                   finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> bSingleRValue <* ws) <* ws)
@@ -170,16 +175,17 @@ bSingleRValue = fmap RLValue bLValue
                 <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
-bStatement = newErr "Expected a statement." $ fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
+bStatement = fmap SRValue ((spanP (/=';') <* charP ';') >>> bRValue)
+                  <|> fmap Block (finiteSelectBracketed '{' '}' (repeatedParser (ws *> bStatement <* ws)))
                   <|> While <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                  newErr "Expected a RValue" ((spanP (/=';') <* charP ';') >>> bRValue))
-                  <|> fmap Block (finiteSelectBracketed '{' '}' (repeatedParser (ws *> bStatement <* ws)))
                   <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> ((:) <$> (bName <* ws) <*> repeatedParser (charP ',' *> bName)) ))
-                  <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected extrn." *> ws *>
+                  <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected auto." *> ws *>
                                  newErr "Expected a name." ((spanP (/=';') <* charP ';') >>> (let f = (,) <$> (bName <* ws) <*> parseNum
                                                                                                      in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
+                  
 parseNum :: Parser (Maybe Int)
 parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
            

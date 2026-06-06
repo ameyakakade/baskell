@@ -9,24 +9,39 @@ import System.Environment
 main :: IO ()
 main = do
   (fileName:_) <- getArgs
-  a <- readFile fileName
-  let parsed = startParser bProgram a
-  let (Right (r,_)) = parsed
-  let irp = gProgram r
-  let asmo = asm (snd irp)
-  writeFile "as.s" asmo
+  compileFile False fileName
 
-compileFile :: String -> IO ()
-compileFile fileName = do
+compileFile :: Bool -> String -> IO ()
+compileFile dumpInfo fileName = do
   a <- readFile fileName
+  let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
   let parsed = startParser bProgram a
-  putStrLn "\nAST:"
-  prettyier parsed
   let (Right (r,_)) = parsed
-  let irp = gProgram r
-  putStrLn "\nIR:"
-  prettyier irp
-  putStrLn "\nASM:"
-  let asmo = asm (snd irp)
-  putStrLn asmo
-  writeFile "as.s" asmo
+
+  case parsed of
+    (Right (r,_)) -> do
+                let irp = gProgram r
+                let asmo = asm (snd irp)
+                writeFile "as.s" asmo
+                let irp = gProgram r
+                let asmo = asm (snd irp)
+                writeFile "as.s" asmo
+                if dumpInfo
+                then do
+                  putStrLn "\nAST:"
+                  prettyier parsed
+                  putStrLn "\nIR:"
+                  prettyier irp
+                  putStrLn "\nASM:"
+                  putStrLn asmo
+                else return ()
+
+    (Left (errors,(loc, s))) -> do
+                putStrLn "Syntax error"
+                putStr $ fileName ++ ":"
+                putStrLn $ findLoc newLines loc
+                putStr $ unlines errors
+
+findLoc :: [Int] -> Int -> String
+findLoc ns loc = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
+    where n = filter (<loc) ns
