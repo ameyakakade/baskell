@@ -10,13 +10,12 @@ There are no third-party dependencies except Base (Haskell standard library).
 ### Parser
 This compiler uses parser combinators. They are great for the most part unless you are dealing 
 with "right recursive grammars". The parsers are heavily inspired by this video: https://www.youtube.com/watch?v=N9RUqGYuGfw.
-There is acceptable reporting but it is not yet displayed properly.
+There is acceptable reporting of syntax errors.
 
 ### Generator
 The generator converts AST into intermediate representation. I used a "precedence parser" so the binary operators are nested 
 properly in the AST itself. The IR is a simplified version inspired by IR of this project https://github.com/bext-lang/b.
-Again, there is decent error reporting, the compiler can keep on compiling and accumulate errors, but they aren't yet displayed
-properly
+There is decent error reporting, the compiler can keep on compiling and accumulate errors.
 
 ### "Targets"
 This part of the compiler is to be rewritten to make it easy to add new targets. Right now the only target is MacOS gas AArch64.
