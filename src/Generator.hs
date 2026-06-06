@@ -233,8 +233,8 @@ gConstant c constantValue = case constantValue of
 escapeChars :: Parser [Word8]
 escapeChars = repeatedParser $
               (charP '*' *> (charEscape <$> pan))
-              <|> ((fromIntegral . ord) <$> pan)
-    where pan = predicateP (\x -> True) "Char"
+              <|> (fromIntegral . ord <$> pan)
+    where pan = predicateP (const True) "Char"
           charEscape c = (fromIntegral . ord) $ case c of
                            '0' -> '\0'
                            '*' -> '*'
