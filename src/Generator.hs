@@ -9,6 +9,7 @@ import Data.Char
 import Data.List
 import Data.Maybe
 import Data.Function
+import Control.Applicative
 
 data Arg = AutoVar     Word
          | Deref       Word
@@ -225,8 +226,20 @@ gConstant c constantValue = case constantValue of
                               Chars a -> (DataOffset dataLength, c { program = oldProgram { staticData = newStaticData } })
                                   where oldProgram = program c
                                         oldStaticData = staticData oldProgram
-                                        newStaticData = oldStaticData++map (fromIntegral . ord) a
+                                        newStaticData = oldStaticData ++ currStaticData
+                                        Right (currStaticData, _) = startParser escapeChars a
                                         dataLength = fromIntegral $ length oldStaticData
+
+escapeChars :: Parser [Word8]
+escapeChars = repeatedParser $
+              (charP '*' *> (charEscape <$> pan))
+              <|> ((fromIntegral . ord) <$> pan)
+    where pan = predicateP (\x -> True) "Char"
+          charEscape c = (fromIntegral . ord) $ case c of
+                           '0' -> '\0'
+                           '*' -> '*'
+                           'n' -> '\n'
+              
 
 tee = [FDefinition {fName = BName {name = "main", nameLoc = 0}, fArgs = [BName {name = "argc", nameLoc = 5}], fStatement = Block [Extrn [BName {name = "printf", nameLoc = 22}],SRValue (FunctionCall (RLValue (LName (BName {name = "printf", nameLoc = 34}))) [RConstant (Digit 1)])]}]
 

@@ -54,5 +54,6 @@ aOp o = case o of
 aArg :: Word -> Arg -> String
 aArg reg arg = case arg of
              DataOffset doff -> "ADRP " ++ "X" ++ (show reg) ++ ", .dat@PAGE" ++ "\n" ++
-                                "ADD " ++ "X" ++ (show reg) ++ ", X" ++ (show reg) ++ ", .dat@PAGEOFF\n"
+                                "ADD " ++ "X" ++ (show reg) ++ ", X" ++ (show reg) ++ ", .dat@PAGEOFF\n" ++
+                                "ADD " ++ "X" ++ (show reg) ++ ", X" ++ (show reg) ++ ", #" ++ (show doff) ++ "\n"
              Literal a -> "MOV X" ++ (show reg) ++ ", #" ++ (show a) ++ "\n"
