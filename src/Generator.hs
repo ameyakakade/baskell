@@ -76,9 +76,14 @@ data IRProgram = IRProgram {
       extrns :: [String]
     } deriving (Eq, Show)
 
+data GenError = GenError {
+      genErrorString :: String,
+      genErrorLocLength :: Maybe (Int, Int)
+    } deriving (Eq, Show)
+
 data Compiler = Compiler {
       program :: IRProgram,
-      errors :: [String],
+      errors :: [GenError],
 
       vars :: [[Var]],
 
@@ -109,7 +114,7 @@ deallocateAutoVariable sizeToDealloc c = c { cAutoVarCount = count}
 declareVarExtrn :: BName -> Compiler -> Compiler
 declareVarExtrn n c = if isNothing (findVar (name n) c)
                       then c { vars = newStack:remainingScopes, program = newProgram }
-                      else addError ("Redefinition of variable '" ++ name n ++ "'") c
+                      else addError (Just n) (\x -> "Redefinition of variable '" ++ x ++ "'") c
     where newStack = newVar:uppermostScope
           newVar = Var (name n) (StorageExternal (name n)) (nameLoc n)
           remainingScopes = drop 1 (vars c)
@@ -119,7 +124,7 @@ declareVarExtrn n c = if isNothing (findVar (name n) c)
 declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
 declareVarAuto (n, size) c = if isNothing (findVar (name n) c)
                              then c' { vars = newStack:remainingScopes }
-                             else addError ("Redefinition of variable '" ++ name n ++ "'") c
+                             else addError (Just n) (\x -> "Redefinition of variable '" ++ x ++ "'") c
     where newStack = newVar:uppermostScope
           newVar = Var (name n) (StorageAuto (cAutoVarCount c)) (nameLoc n)
           remainingScopes = drop 1 (vars c)
@@ -129,8 +134,11 @@ declareVarAuto (n, size) c = if isNothing (findVar (name n) c)
 addOp :: Op -> Compiler -> Compiler
 addOp o c = c { functionBody = functionBody c ++ [o] }
 
-addError :: String -> Compiler -> Compiler
-addError s c = c { errors = errors c ++ [s] }
+addError :: Maybe BName -> (String -> String) -> Compiler -> Compiler
+addError n s c = c { errors = errors c ++ [ne] }
+    where ne = if isJust n
+               then let n' = fromJust n in GenError (s (name n')) (Just (nameLoc n', length $ name n'))
+               else GenError (s "") Nothing
 
 bogusArg = External "bogusArgument"
 
@@ -139,7 +147,7 @@ findVar n c = if null foundVars then Nothing else let (hfv:_) = foundVars in Jus
     where findVar = find (\x -> varName x == n)
           foundVars = mapMaybe findVar (vars c)
 
-gProgram :: BProgram -> ([String], IRProgram)
+gProgram :: BProgram -> ([GenError], IRProgram)
 gProgram p = (errors c, program c)
     where c = gCompile p
 
@@ -217,7 +225,7 @@ gLValue c l = case l of
                                                          then (case varStorage (fromJust v) of
                                                                 StorageExternal s -> External s
                                                                 StorageAuto i -> AutoVar (fromIntegral i), c)
-                                                         else (bogusArg, addError ("Could not find variable '" ++ name n ++ "'") c)
+                                                         else (bogusArg, addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'") c)
 
 gConstant :: Compiler -> BConstant -> (Arg, Compiler)
 gConstant c constantValue = case constantValue of
