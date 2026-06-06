@@ -4,6 +4,8 @@ import Parser
 import BParser
 import Generator
 import TargetGasAArch64MacOS
+
+import Control.Monad
 import System.Environment
 
 main :: IO ()
@@ -26,20 +28,19 @@ compileFile dumpInfo fileName = do
                 let irp = gProgram r
                 let asmo = asm (snd irp)
                 writeFile "as.s" asmo
-                if dumpInfo
-                then do
+                when dumpInfo
+                 (do
                   putStrLn "\nAST:"
                   prettyier parsed
                   putStrLn "\nIR:"
                   prettyier irp
                   putStrLn "\nASM:"
-                  putStrLn asmo
-                else return ()
+                  putStrLn asmo)
 
     (Left (errors,(loc, s))) -> do
                 putStrLn "Syntax error"
                 putStr $ fileName ++ ":"
-                putStrLn $ findLoc newLines loc
+                putStrLn $ findLoc newLines (loc-1)
                 putStr $ unlines errors
 
 findLoc :: [Int] -> Int -> String

@@ -74,6 +74,7 @@ spanP predicate = Parser (Right . f)
 
 ws :: Parser String
 ws = spanP isSpace
+wsnn = spanP (==' ')
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
