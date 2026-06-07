@@ -21,22 +21,7 @@ data Arg = AutoVar     Word
            deriving (Eq, Show)
 
 
-data BinOp = Plus
-           | Minus
-           | Mult
-           | Div
-           | Mod
-           | Equal
-           | NotEqual
-           | Less
-           | LessEqual
-           | Greater
-           | GreaterEqual
-           | BitOr
-           | BitAnd
-           | BitShl
-           | BitShr
-             deriving (Eq, Show)
+type BinOp = BBinary
 
 data Op = UnaryNot        Word   Arg          -- result, arg
         | Negate          Word   Arg          -- result, arg
@@ -53,7 +38,7 @@ data Op = UnaryNot        Word   Arg          -- result, arg
           deriving (Eq, Show)
 
 data Storage = StorageExternal String
-             | StorageAuto Int
+             | StorageAuto Word
                deriving (Eq, Show)
 
 data Var = Var {
@@ -92,8 +77,8 @@ data Compiler = Compiler {
       functionBody :: [Op],
       functionBlocksCount :: Int,
 
-      cAutoVarCount :: Int,
-      cAutoVarCountMax :: Int
+      cAutoVarCount :: Word,
+      cAutoVarCountMax :: Word
     } deriving (Eq, Show)
 
 emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] 0 0 0
@@ -105,11 +90,11 @@ allocateAutoVariable :: Int -> Compiler -> Compiler
 allocateAutoVariable sizeToAlloc c =
     c { cAutoVarCount = count,
                         cAutoVarCountMax = max (cAutoVarCountMax c) count }
-    where count = cAutoVarCount c + sizeToAlloc
+    where count = cAutoVarCount c + (fromIntegral sizeToAlloc)
 
 deallocateAutoVariable :: Int -> Compiler -> Compiler
 deallocateAutoVariable sizeToDealloc c = c { cAutoVarCount = count}
-    where count = cAutoVarCount c - sizeToDealloc
+    where count = cAutoVarCount c - (fromIntegral $ sizeToDealloc)
 
 declareVarExtrn :: BName -> Compiler -> Compiler
 declareVarExtrn n c = if isNothing (findVar (name n) c)
@@ -201,6 +186,7 @@ gRValue c rvalue = case rvalue of
                      Assignment l assOp r -> gAssignment c l assOp r
                      RLValue a -> gLValue c a
                      RConstant a -> gConstant c a
+                     Binary l op r -> gBinary l op r c
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
 gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
@@ -212,9 +198,9 @@ gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
 
 gAssignment :: Compiler -> BLValue -> BAssign -> BRValue -> (Arg, Compiler)
 gAssignment c lValue assOp rValue = case assOp of
-                                      Assign -> (lArg, addOp newOp c)
+                                      Assign -> (lArg, addOp newOp c'')
     where (rArg, c') = gRValue c rValue
-          (lArg, c'') = gLValue c lValue
+          (lArg, c'') = gLValue c' lValue
           newOp = case lArg of
                     External a -> ExternalAssign a rArg
                     AutoVar a -> AutoAssign (fromIntegral a) rArg
@@ -238,6 +224,13 @@ gConstant c constantValue = case constantValue of
                                         Right (currStaticData, _) = startParser escapeChars a
                                         dataLength = fromIntegral $ length oldStaticData
 
+gBinary :: BRValue -> BBinary -> BRValue -> Compiler -> (Arg, Compiler)
+gBinary l op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 c'')
+    where (lArg, c') = gRValue c l
+          (rArg, c'') = gRValue c' r
+          resultAutoVar = cAutoVarCount c''
+          newOp = OpBin op resultAutoVar lArg rArg 
+
 escapeChars :: Parser [Word8]
 escapeChars = repeatedParser $
               (charP '*' *> (charEscape <$> pan))
@@ -247,9 +240,6 @@ escapeChars = repeatedParser $
                            '0' -> '\0'
                            '*' -> '*'
                            'n' -> '\n'
-              
-
-tee = [FDefinition {fName = BName {name = "main", nameLoc = 0}, fArgs = [BName {name = "argc", nameLoc = 5}], fStatement = Block [Extrn [BName {name = "printf", nameLoc = 22}],SRValue (FunctionCall (RLValue (LName (BName {name = "printf", nameLoc = 34}))) [RConstant (Digit 1)])]}]
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
