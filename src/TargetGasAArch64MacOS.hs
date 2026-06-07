@@ -1,6 +1,7 @@
 module TargetGasAArch64MacOS where
 
 import Generator
+import BParser (BBinary(Add, Subtract, Multiply))
 import Data.Word
 import Data.List
 
@@ -19,7 +20,7 @@ aDataSection a = ".data\n.dat: .byte " ++ intercalate "," (map show a)
 
 aFunction :: Function -> String
 aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
-              concatMap aOp (body f) ++ "\n" ++
+              concatMap (\x->aOp x ++ "\n") (body f) ++ "\n" ++
               aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
 aFunctionPrologue :: String -> Word -> Word -> String
@@ -38,16 +39,18 @@ aFunctionEpilogue countParam countAutoVars = "ADD SP, SP, #" ++ show stackOffset
           ccc = (countParam + countAutoVars)*4
 
 storeVarOnStack :: Word -> Word -> String
-storeVarOnStack reg offset = "STR " ++ "X" ++ show reg ++ ", [FP, #" ++ show offset ++ "]\n"
+storeVarOnStack reg offset = "STR " ++ "X" ++ show reg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
 loadVarFromStack :: Word -> Word -> String
-loadVarFromStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show offset ++ "]\n"
+loadVarFromStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
 aOp :: Op -> String
 aOp o = case o of
           Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++ 
                                          fl fnLoc ++ "\n" ++
                                          storeVarOnStack 0 offset
+          OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
+          AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 loc
     where fl (External s) = "BL _" ++ s
           fl a = aArg 16 a ++ "\n" ++ "BLR X16"
 
@@ -58,3 +61,13 @@ aArg reg arg = case arg of
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", #" ++ show doff ++ "\n"
              Literal a -> "MOV X" ++ show reg ++ ", #" ++ show a ++ "\n"
              AutoVar autoVarOffset -> loadVarFromStack reg autoVarOffset
+
+aBinary :: BinOp -> Word -> Arg -> Arg -> String
+aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
+                                    aArg 2 rArg ++
+                                    (case binOp of
+                                      Add      -> "ADD X0, X1, X2\n"
+                                      Subtract -> "SUB X0, X1, X2\n"
+                                      Multiply -> "MUL X0, X1, X2\n"
+                                    ) ++
+                                    storeVarOnStack 0 resultLoc

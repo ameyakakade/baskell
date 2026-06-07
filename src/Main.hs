@@ -25,7 +25,13 @@ compileFile dumpInfo fileName = do
   case parsed of
     (Right (r,_)) ->
         do
+          when dumpInfo (do
+                          putStrLn "\nAST:"
+                          prettyier parsed)
           let irp = gProgram r
+          when dumpInfo (do
+                          putStrLn "\nIR:"
+                          prettyier irp)
           let asmo = asm (snd irp)
           if null (fst irp)
           then do
@@ -39,12 +45,7 @@ compileFile dumpInfo fileName = do
             putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
             putStrLn ""
                      
-          when dumpInfo
-              (do
-                putStrLn "\nAST:"
-                prettyier parsed
-                putStrLn "\nIR:"
-                prettyier irp
+          when dumpInfo (do
                 putStrLn "\nASM:"
                 putStrLn asmo)
 

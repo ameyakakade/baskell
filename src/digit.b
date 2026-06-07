@@ -1,7 +1,10 @@
-main(argv, argc)
+main()
 {
-    extrn exit, putchar;
+    extrn exit, printword;
     auto a,b;
-    b = 1+2*4+5;
-    exit(b);
+    a = 4+5*9-5;
+    printword(a);
+    b = a*2;
+    printword(b);
+    exit(0);
 }

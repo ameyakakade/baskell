@@ -7,3 +7,8 @@ void write(char* str, int len)
         putchar(*(str+i));
     }
 }
+
+void printword(size_t n)
+{
+    printf("%u\n", n);
+}

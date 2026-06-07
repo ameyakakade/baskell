@@ -20,14 +20,13 @@ data Arg = AutoVar     Word
          | DataOffset  Word
            deriving (Eq, Show)
 
-
 type BinOp = BBinary
 
 data Op = UnaryNot        Word   Arg          -- result, arg
         | Negate          Word   Arg          -- result, arg
         | OpBin           BinOp  Word Arg Arg -- binop, index, lhs, rhs
         | Index           Int   Arg  Arg      -- result, arg, offset
-        | AutoAssign      Int   Arg           -- index, arg
+        | AutoAssign      Word   Arg           -- index, arg
         | ExternalAssign  String Arg          -- name, arg
         | Store           Int   Arg           -- index, arg
         | Funcall         Word   Arg  [Arg]   -- result, fn, args

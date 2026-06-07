@@ -60,7 +60,7 @@ charP :: Char -> Parser Char
 charP x = predicateP (x ==) ("Expected " ++ show x)
 
 stringP :: String -> Parser String
-stringP input = newErr ("Expected " ++ input) $ traverse charP input
+stringP input = newErr ("Maybe you meant '" ++ input ++ "' ?") $ traverse charP input
 
 spanP :: (Char -> Bool) -> Parser String
 spanP predicate = Parser (Right . f)
