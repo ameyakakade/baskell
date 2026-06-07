@@ -10,5 +10,5 @@ void write(char* str, int len)
 
 void printword(size_t n)
 {
-    printf("%u\n", n);
+    printf("%u", n);
 }
