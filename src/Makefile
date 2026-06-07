@@ -4,8 +4,8 @@ as: as.o write.o
 as.o: as.s
 	as -arch arm64 -o as.o as.s
 
-as.s: Main digit.b
-	./Main digit.b
+as.s: Main examples/ifelse.b
+	./Main examples/ifelse.b
 
 Main: *.hs
 	ghc Main.hs

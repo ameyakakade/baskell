@@ -20,7 +20,7 @@ aDataSection a = ".data\n.dat: .byte " ++ intercalate "," (map show a)
 
 aFunction :: Function -> String
 aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
-              concatMap (\x->aOp x ++ "\n") (body f) ++ "\n" ++
+              concatMap (\x->aOp (funName f) x ++ "\n") (body f) ++ "\n" ++
               aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
 aFunctionPrologue :: String -> Word -> Word -> String
@@ -44,13 +44,18 @@ storeVarOnStack reg offset = "STR " ++ "X" ++ show reg ++ ", [FP, #" ++ show (of
 loadVarFromStack :: Word -> Word -> String
 loadVarFromStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
-aOp :: Op -> String
-aOp o = case o of
+aOp :: String -> Op -> String
+aOp funName o = case o of
           Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++ 
                                          fl fnLoc ++ "\n" ++
                                          storeVarOnStack 0 offset
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 loc
+          Label labelN -> funName ++ show labelN ++ ":"
+          JmpLabel labelN -> "B " ++ funName ++ show labelN
+          JmpIfZeroLabel labelN arg -> aArg 0 arg ++
+                                      "CMP X0, #0\n" ++
+                                      "B.EQ " ++ funName ++ show labelN
     where fl (External s) = "BL _" ++ s
           fl a = aArg 16 a ++ "\n" ++ "BLR X16"
 

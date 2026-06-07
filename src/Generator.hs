@@ -25,14 +25,14 @@ type BinOp = BBinary
 data Op = UnaryNot        Word   Arg          -- result, arg
         | Negate          Word   Arg          -- result, arg
         | OpBin           BinOp  Word Arg Arg -- binop, index, lhs, rhs
-        | Index           Int   Arg  Arg      -- result, arg, offset
-        | AutoAssign      Word   Arg           -- index, arg
+        | Index           Word   Arg  Arg     -- result, arg, offset
+        | AutoAssign      Word   Arg          -- index, arg
         | ExternalAssign  String Arg          -- name, arg
-        | Store           Int   Arg           -- index, arg
+        | Store           Word   Arg          -- index, arg
         | Funcall         Word   Arg  [Arg]   -- result, fn, args
         | Label           Word                -- label
-        | JmpLabel        Word                -- label
-        | JmpIfNotLabel   Word   Arg          -- label
+        | JmpLabel        Word                -- label index
+        | JmpIfZeroLabel  Word   Arg          -- label index, arg
         | Return          (Maybe Arg)         -- arg
           deriving (Eq, Show)
 
@@ -74,16 +74,20 @@ data Compiler = Compiler {
       functionNames :: [BName],
 
       functionBody :: [Op],
-      functionBlocksCount :: Int,
+      functionBlocksCount :: Word,
+      functionLabelCount :: Word,
 
       cAutoVarCount :: Word,
       cAutoVarCountMax :: Word
     } deriving (Eq, Show)
 
-emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] 0 0 0
+emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] 0 0 0 0
 
 initCompiler :: BProgram -> Compiler
 initCompiler ast = emptyCompiler { functionNames = map fName ast }
+
+newLabel :: Compiler -> Compiler
+newLabel c = c { functionLabelCount = functionLabelCount c + 1 }
 
 allocateAutoVariable :: Int -> Compiler -> Compiler
 allocateAutoVariable sizeToAlloc c =
@@ -156,16 +160,17 @@ gFunction bname args block c = emptyCompiler { program = newestProgram, errors =
 
 gStatement :: Compiler -> BStatement -> Compiler
 gStatement c statement = case statement of
-                               Block   a -> gBlock c a
-                               Extrn   a -> gExtrn c a
-                               Auto    a -> gAuto c a
-                               SRValue a -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
+                               Block   a       -> gBlock c a
+                               Extrn   a       -> gExtrn c a
+                               Auto    a       -> gAuto c a
+                               While   cond st -> gWhile c cond st
+                               SRValue a       -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
     where c' = blockBegin c
           autoVarC = cAutoVarCount c
-          c'' = c' & \x -> foldl' gStatement x ss & blockEnd (functionBlocksCount c)
+          c'' = c' & \x -> foldl' gStatement x ss & blockEnd (fromIntegral $ functionBlocksCount c)
 
 blockBegin :: Compiler -> Compiler
 blockBegin c = c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c }
@@ -186,6 +191,7 @@ gRValue c rvalue = case rvalue of
                      RLValue a -> gLValue c a
                      RConstant a -> gConstant c a
                      Binary l op r -> gBinary l op r c
+                     BracketRValue rv -> gRValue c rv
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
 gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
@@ -229,6 +235,13 @@ gBinary l op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 
           (rArg, c'') = gRValue c' r
           resultAutoVar = cAutoVarCount c''
           newOp = OpBin op resultAutoVar lArg rArg 
+
+gWhile :: Compiler -> BRValue -> BStatement -> Compiler
+gWhile c cond st = newLabel $ addOp (Label (functionLabelCount c''')) c'''
+    where c' = newLabel $ addOp (Label (functionLabelCount c)) c
+          (arg, c'') = gRValue c' cond
+          newOp = JmpIfZeroLabel (functionLabelCount c''') arg
+          c''' = addOp (JmpLabel $ functionLabelCount c) $ gStatement (addOp newOp c'') st
 
 escapeChars :: Parser [Word8]
 escapeChars = repeatedParser $
