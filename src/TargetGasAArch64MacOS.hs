@@ -1,7 +1,7 @@
 module TargetGasAArch64MacOS where
 
 import Generator
-import BParser (BBinary(Add, Subtract, Multiply))
+import BParser (BBinary(Add, Subtract, Multiply, Equal, NotEqual))
 import Data.Word
 import Data.List
 
@@ -78,5 +78,9 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                       Add      -> "ADD X0, X1, X2\n"
                                       Subtract -> "SUB X0, X1, X2\n"
                                       Multiply -> "MUL X0, X1, X2\n"
+                                      Equal    -> "CMP X1, X2\n" ++
+                                                  "CSET X0, EQ\n"
+                                      NotEqual -> "CMP X1, X2\n" ++
+                                                  "CSET X0, NE\n"
                                     ) ++
                                     storeVarOnStack 0 resultLoc

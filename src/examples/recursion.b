@@ -8,7 +8,7 @@ main()
 }
 factorial(i)
 {
-    if(i-1){
+    if(i!=1){
         auto b;
         b=factorial((i-1));
         b=b*i;

@@ -43,10 +43,14 @@ data BRValue = BracketRValue BRValue
 
           -- left binding power, right binding power
 bindingPower :: BBinary -> (Int, Int)
-bindingPower Add             = (1, 2)
-bindingPower Subtract        = (1, 2)
-bindingPower Multiply        = (3, 4)
-bindingPower Divide          = (3, 4)
+bindingPower Add             = (2, 3)
+bindingPower Subtract        = (2, 3)
+bindingPower Multiply        = (4, 5)
+bindingPower Divide          = (4, 5)
+bindingPower Equal           = (0, 1)
+bindingPower NotEqual        = (0, 1)
+bindingPower Or              = (0, 1)
+bindingPower And             = (0, 1)
 
 data BAssign = Assign
              | BinaryAssign BBinary
@@ -188,7 +192,7 @@ bStatement = fmap Block (ws *> finiteSelectBracketed '{' '}' (repeatedParser (ws
                       bStatement <*> (Just <$> (stringP "else" *> ws *> bStatement))
                   <|> fmap IfElse (stringP "if" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
                       bStatement <*> return Nothing
-                  <|> fmap BReturn (stringP "return" *> ws *> charP ';' *> return Nothing)
+                  <|> fmap BReturn (stringP "return" *> ws *> charP ';' *> pure Nothing)
                   <|> fmap BReturn (stringP "return" *> predicateP isSpace "Expected return." *> ws *> (selSt >>> fmap Just bRValue))
                   <|> fmap SRValue (selSt >>> bRValue)
 
