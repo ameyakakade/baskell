@@ -20,7 +20,7 @@ aDataSection a = ".data\n.dat: .byte " ++ intercalate "," (map show a)
 
 aFunction :: Function -> String
 aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
-              concatMap (\x->aOp (funName f) x ++ "\n") (body f) ++ "\n" ++
+              concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
               aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
 aFunctionPrologue :: String -> Word -> Word -> String
