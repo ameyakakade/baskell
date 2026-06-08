@@ -166,6 +166,11 @@ gStatement c statement = case statement of
                                While   cond st      -> gWhile c cond st
                                SRValue a            -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
                                IfElse  cond tst fst -> gIfElse c cond tst fst
+                               BReturn (Just a)     -> addOp newOp c'
+                                                           where (rArg, c') = gRValue c a
+                                                                 newOp = Return $ Just rArg
+                               BReturn Nothing      -> addOp (Return Nothing) c
+                                        
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
@@ -213,7 +218,7 @@ gAssignment c lValue assOp rValue = case assOp of
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
-                LName n -> let vf = find (\b->(name n)==(name b)) (functionNames c) in if isJust vf then (External (name n), c) else
+                LName n -> let vf = find (\b->name n==name b) (functionNames c) in if isJust vf then (External (name n), c) else
                            let v = findVar (name n) c in if isJust v
                                                          then (case varStorage (fromJust v) of
                                                                  StorageExternal s -> External s
@@ -256,7 +261,7 @@ gIfElse c cond tst (Just fst) = newLabel (addOp (Label afterElseLabel) c''')
           elseLabel = functionLabelCount c''
           afterElseLabel = functionLabelCount c'''
           c'' = addOp (JmpLabel afterElseLabel) $
-                gStatement (addOp (JmpIfZeroLabel elseLabel arg) c) tst
+                gStatement (addOp (JmpIfZeroLabel elseLabel arg) c') tst
           c''' = gStatement (newLabel (addOp (Label elseLabel) c'')) fst
 
 escapeChars :: Parser [Word8]

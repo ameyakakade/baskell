@@ -24,7 +24,7 @@ data BStatement = Auto     [(BName, Maybe Int)]
                 | While    BRValue BStatement
                 | Switch   BRValue BStatement
                 | Goto     BRValue
-                | Return   BRValue
+                | BReturn   (Maybe BRValue)
                 | SRValue  BRValue
                 deriving (Eq, Show)
 
@@ -175,8 +175,7 @@ bSingleRValue = fmap RLValue bLValue
                 <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
-bStatement = fmap SRValue (selSt >>> bRValue)
-                  <|> fmap Block (ws *> finiteSelectBracketed '{' '}' (repeatedParser (ws *> bStatement <* ws)))
+bStatement = fmap Block (ws *> finiteSelectBracketed '{' '}' (repeatedParser (ws *> bStatement <* ws)))
                   <|> fmap While (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                  newErr "Expected a RValue" (selSt >>> bRValue))
@@ -189,6 +188,9 @@ bStatement = fmap SRValue (selSt >>> bRValue)
                       bStatement <*> (Just <$> (stringP "else" *> ws *> bStatement))
                   <|> fmap IfElse (stringP "if" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
                       bStatement <*> return Nothing
+                  <|> fmap BReturn (stringP "return" *> ws *> charP ';' *> return Nothing)
+                  <|> fmap BReturn (stringP "return" *> predicateP isSpace "Expected return." *> ws *> (selSt >>> fmap Just bRValue))
+                  <|> fmap SRValue (selSt >>> bRValue)
 
     where selSt = spanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
                   

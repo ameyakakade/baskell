@@ -45,8 +45,8 @@ storeVarOnStack reg offset = "STR " ++ "X" ++ show reg ++ ", [FP, #" ++ show (of
 loadVarFromStack :: Word -> Word -> String
 loadVarFromStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
-aOp :: String -> Op -> String
-aOp funName o = case o of
+aOp :: String -> Word -> Word -> Op -> String
+aOp funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++ 
                                          fl fnLoc ++ "\n" ++
                                          storeVarOnStack 0 offset
@@ -57,6 +57,9 @@ aOp funName o = case o of
           JmpIfZeroLabel labelN arg -> aArg 0 arg ++
                                       "CMP X0, #0\n" ++
                                       "B.EQ " ++ funName ++ show labelN
+          Return Nothing -> aFunctionEpilogue countParam countAutoVars
+          Return (Just arg) -> aArg 0 arg ++
+                               aFunctionEpilogue countParam countAutoVars
     where fl (External s) = "BL _" ++ s
           fl a = aArg 16 a ++ "\n" ++ "BLR X16"
 
