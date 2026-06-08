@@ -93,11 +93,11 @@ allocateAutoVariable :: Int -> Compiler -> Compiler
 allocateAutoVariable sizeToAlloc c =
     c { cAutoVarCount = count,
                         cAutoVarCountMax = max (cAutoVarCountMax c) count }
-    where count = cAutoVarCount c + (fromIntegral sizeToAlloc)
+    where count = cAutoVarCount c + fromIntegral sizeToAlloc
 
 deallocateAutoVariable :: Int -> Compiler -> Compiler
 deallocateAutoVariable sizeToDealloc c = c { cAutoVarCount = count}
-    where count = cAutoVarCount c - (fromIntegral $ sizeToDealloc)
+    where count = cAutoVarCount c - fromIntegral sizeToDealloc
 
 declareVarExtrn :: BName -> Compiler -> Compiler
 declareVarExtrn n c = if isNothing (findVar (name n) c)
@@ -160,11 +160,12 @@ gFunction bname args block c = emptyCompiler { program = newestProgram, errors =
 
 gStatement :: Compiler -> BStatement -> Compiler
 gStatement c statement = case statement of
-                               Block   a       -> gBlock c a
-                               Extrn   a       -> gExtrn c a
-                               Auto    a       -> gAuto c a
-                               While   cond st -> gWhile c cond st
-                               SRValue a       -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
+                               Block   a            -> gBlock c a
+                               Extrn   a            -> gExtrn c a
+                               Auto    a            -> gAuto c a
+                               While   cond st      -> gWhile c cond st
+                               SRValue a            -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
+                               IfElse  cond tst fst -> gIfElse c cond tst fst
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
@@ -242,6 +243,23 @@ gWhile c cond st = newLabel $ addOp (Label (functionLabelCount c''')) c'''
           (arg, c'') = gRValue c' cond
           newOp = JmpIfZeroLabel (functionLabelCount c''') arg
           c''' = addOp (JmpLabel $ functionLabelCount c) $ gStatement (addOp newOp c'') st
+
+gIfElse :: Compiler -> BRValue -> BStatement -> Maybe BStatement -> Compiler
+gIfElse c cond tst Nothing = c''
+    where (arg, c') = gRValue c cond
+          newOp = JmpIfZeroLabel (functionLabelCount c') arg
+          c'' = newLabel $ addOp (Label (functionLabelCount c')) $ gStatement (addOp newOp c') tst
+
+gIfElse c cond tst (Just fst) = newLabel c'''
+    where (arg, c') = gRValue c cond
+          elseStLabel = functionLabelCount c'
+          elseEndLabel = functionLabelCount c''
+          c'' = newLabel $
+                addOp (Label (functionLabelCount c')) $
+                addOp (JmpLabel elseEndLabel) $
+                gStatement (addOp (JmpIfZeroLabel elseStLabel arg) c') tst
+          c''' = addOp (Label (functionLabelCount c'')) $
+                 gStatement c'' fst
 
 escapeChars :: Parser [Word8]
 escapeChars = repeatedParser $

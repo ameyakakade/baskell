@@ -12,3 +12,8 @@ void printword(size_t n)
 {
     printf("%u", n);
 }
+
+void putstr(char* nullTerminatedStr)
+{
+    printf("%s", nullTerminatedStr);
+}

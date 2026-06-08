@@ -20,7 +20,7 @@ data BStatement = Auto     [(BName, Maybe Int)]
                 | Default  [(BConstant, BStatement)] -- TODO: Confirm if this correct
                 | Case     [(BConstant, BStatement)]
                 | Block    [BStatement]
-                | IfElse   BRValue BStatement BStatement
+                | IfElse   BRValue BStatement (Maybe BStatement)
                 | While    BRValue BStatement
                 | Switch   BRValue BStatement
                 | Goto     BRValue
@@ -177,7 +177,7 @@ bSingleRValue = fmap RLValue bLValue
 bStatement :: Parser BStatement
 bStatement = fmap SRValue (selSt >>> bRValue)
                   <|> fmap Block (ws *> finiteSelectBracketed '{' '}' (repeatedParser (ws *> bStatement <* ws)))
-                  <|> While <$> (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
+                  <|> fmap While (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
                   <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
                                  newErr "Expected a RValue" (selSt >>> bRValue))
                   <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
@@ -185,6 +185,11 @@ bStatement = fmap SRValue (selSt >>> bRValue)
                   <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected auto." *> ws *>
                                  newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* ws) <*> parseNum
                                                                                                      in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
+                  <|> fmap IfElse (stringP "if" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
+                      bStatement <*> (Just <$> (stringP "else" *> ws *> bStatement))
+                  <|> fmap IfElse (stringP "if" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
+                      bStatement <*> return Nothing
+
     where selSt = spanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
                   
 parseNum :: Parser (Maybe Int)

@@ -52,7 +52,7 @@ compileFile dumpInfo fileName = do
     (Left (errors,(loc, s))) -> do
                 putStrLn "Syntax error"
                 putStr $ fileName ++ ":"
-                putStrLn $ findLoc newLines (loc)
+                putStrLn $ findLoc newLines loc
                 putStr $ unlines errors
 
 findLoc :: [Int] -> Int -> String
