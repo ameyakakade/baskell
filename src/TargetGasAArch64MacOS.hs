@@ -34,7 +34,8 @@ aFunctionPrologue name countParam countAutoVars = "_" ++ name ++ ":\n" ++
 
 aFunctionEpilogue :: Word -> Word -> String
 aFunctionEpilogue countParam countAutoVars = "ADD SP, SP, #" ++ show stackOffset ++ "\n" ++
-                                                  "LDP LR, FP, [SP], #16\n"
+                                             "LDP LR, FP, [SP], #16\n" ++
+                                             "RET\n"
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*4
 

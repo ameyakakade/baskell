@@ -213,10 +213,11 @@ gAssignment c lValue assOp rValue = case assOp of
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
-                LName n -> let v = findVar (name n) c in if isJust v
+                LName n -> let vf = find (\b->(name n)==(name b)) (functionNames c) in if isJust vf then (External (name n), c) else
+                           let v = findVar (name n) c in if isJust v
                                                          then (case varStorage (fromJust v) of
-                                                                StorageExternal s -> External s
-                                                                StorageAuto i -> AutoVar (fromIntegral i), c)
+                                                                 StorageExternal s -> External s
+                                                                 StorageAuto i -> AutoVar (fromIntegral i), c)
                                                          else (bogusArg, addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'") c)
 
 gConstant :: Compiler -> BConstant -> (Arg, Compiler)
