@@ -250,16 +250,13 @@ gIfElse c cond tst Nothing = c''
           newOp = JmpIfZeroLabel (functionLabelCount c') arg
           c'' = newLabel $ addOp (Label (functionLabelCount c')) $ gStatement (addOp newOp c') tst
 
-gIfElse c cond tst (Just fst) = newLabel c'''
+gIfElse c cond tst (Just fst) = newLabel (addOp (Label afterElseLabel) c''')
     where (arg, c') = gRValue c cond
-          elseStLabel = functionLabelCount c'
-          elseEndLabel = functionLabelCount c''
-          c'' = newLabel $
-                addOp (Label (functionLabelCount c')) $
-                addOp (JmpLabel elseEndLabel) $
-                gStatement (addOp (JmpIfZeroLabel elseStLabel arg) c') tst
-          c''' = addOp (Label (functionLabelCount c'')) $
-                 gStatement c'' fst
+          elseLabel = functionLabelCount c''
+          afterElseLabel = functionLabelCount c'''
+          c'' = addOp (JmpLabel afterElseLabel) $
+                gStatement (addOp (JmpIfZeroLabel elseLabel arg) c) tst
+          c''' = gStatement (newLabel (addOp (Label elseLabel) c'')) fst
 
 escapeChars :: Parser [Word8]
 escapeChars = repeatedParser $
