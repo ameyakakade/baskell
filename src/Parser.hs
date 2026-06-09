@@ -38,11 +38,16 @@ instance Monad Parser where
                         (a, restIn) <- p input
                         let (Parser np) = f a
                         np restIn
-                        
+
 newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = Right a
         replace (Left (oldErr, a)) = Left (newError:oldErr, a)
+
+replaceErr :: String -> Parser a -> Parser a
+replaceErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
+  where replace (Right a) = Right a
+        replace (Left (oldErr, a)) = Left ([newError], a)
 
 startParser parser input = runParser parser (0, input)
 
@@ -60,7 +65,7 @@ charP :: Char -> Parser Char
 charP x = predicateP (x ==) ("Expected " ++ show x)
 
 stringP :: String -> Parser String
-stringP input = newErr ("Maybe you meant '" ++ input ++ "' ?") $ traverse charP input
+stringP input = replaceErr ("Maybe you meant '" ++ input ++ "' ?") $ traverse charP input
 
 spanP :: (Char -> Bool) -> Parser String
 spanP predicate = Parser (Right . f)
@@ -118,3 +123,7 @@ f >>> g = Parser $ \input -> do
                                          then Right (r, restIn)
                                          else Left (["Unexpected string, "++i'], (c', i))
               Left (err, (c', i'))  -> Left (err, (c', i))
+
+ignoreErrorIndex p = Parser $ \input -> do
+                     let o = runParser p input
+                     if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o

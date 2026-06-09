@@ -153,8 +153,7 @@ bUnary = newErr "Expected a unary operator" $
           <|> fmap (const Exclamation) (charP '!')
 
 bBinary :: Parser BBinary
-bBinary = newErr "Expected a binary operator" $
-          fmap (const Or) (stringP "|")
+bBinary = fmap (const Or) (stringP "|")
           <|> fmap (const And) (stringP "&")
           <|> fmap (const Equal) (stringP "==")
           <|> fmap (const NotEqual) (stringP "!=")
@@ -180,24 +179,38 @@ bName = Parser $ \(loc, i) -> do
           (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum) (loc, i)
           return (BName r loc, restIn)
 
-bRValue = Parser $ \input -> do
-            let o = runParser bRValueE input
-            if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
-
-bRValueE :: Parser BRValue
-bRValueE = pratter 0
-          <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
-          <|> FunctionCall <$> bSingleRValue <*> 
+bRValue :: Parser BRValue
+bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':') <* charP ':' <*> spanP (const True)) >>=
+           \(c,l,r) -> Parser $ \input -> do
+                       (ce, _) <- startParser bRValue c
+                       (le, _) <- startParser bRValue l
+                       (re, _) <- startParser bRValue r
+                       return (Ternary ce le re, input)
+           )
+           <|> newErr "Could not parse expression." (pratter 0)
+           <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
+           <|> FunctionCall <$> bSingleRValue <*> 
                   finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (spanP (/=',') >>> bRValue) <* ws) <* ws)
 
 bLValue :: Parser BLValue
-bLValue = fmap LName bName
-          <|> fmap Dereference (charP '*' *> bRValue)
+bLValue = fmap Array bRValueSingleLValue <*> finiteSelectBracketed '[' ']' bRValue
+          <|> bSingleLValue
 
 bSingleRValue :: Parser BRValue
 bSingleRValue = fmap RLValue bLValue
-                <|> fmap RConstant bConstant
-                <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
+                <|> bRValueOnly
+
+bSingleLValue :: Parser BLValue
+bSingleLValue = fmap Dereference (charP '*' *> bRValue)
+                <|> fmap LName bName
+
+bRValueSingleLValue :: Parser BRValue
+bRValueSingleLValue = fmap RLValue bSingleLValue
+                      <|> bRValueOnly
+
+bRValueOnly :: Parser BRValue
+bRValueOnly = fmap RConstant bConstant
+              <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
 bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (bws *> bStatement <* bws)))
@@ -215,12 +228,12 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (b
                       bStatement <*> return Nothing
                   <|> fmap BReturn (stringP "return" *> bws *> charP ';' *> pure Nothing)
                   <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
-                  <|> fmap SRValue (selSt >>> bRValue)
+                  <|> fmap SRValue (selSt >>> ignoreErrorIndex bRValue)
 
     where selSt = spanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
           keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
           keywordSpacer i = Parser $ \input -> do
-                            runParser (predicateP (\x -> (isSpace x) || (x=='/')) ("Expected " ++ i ++ ".")) input
+                            runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
                             return ("", input)
 
 parseNum :: Parser (Maybe Int)

@@ -82,5 +82,9 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                                   "CSET X0, EQ\n"
                                       NotEqual -> "CMP X1, X2\n" ++
                                                   "CSET X0, NE\n"
+                                      LessThan -> "CMP X1, X2\n" ++
+                                                  "CSET X0, LT\n"
+                                      MoreThan -> "CMP X1, X2\n" ++
+                                                  "CSET X0, GT\n"
                                     ) ++
                                     storeVarOnStack 0 resultLoc
