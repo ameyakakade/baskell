@@ -43,14 +43,19 @@ data BRValue = BracketRValue BRValue
 
           -- left binding power, right binding power
 bindingPower :: BBinary -> (Int, Int)
-bindingPower Add             = (2, 3)
-bindingPower Subtract        = (2, 3)
-bindingPower Multiply        = (4, 5)
-bindingPower Divide          = (4, 5)
-bindingPower Equal           = (0, 1)
-bindingPower NotEqual        = (0, 1)
-bindingPower Or              = (0, 1)
-bindingPower And             = (0, 1)
+bindingPower b = case b of
+                   Add             -> (2, 3)
+                   Subtract        -> (2, 3)
+                   Multiply        -> (4, 5)
+                   Divide          -> (4, 5)
+                   Equal           -> (0, 1)
+                   NotEqual        -> (0, 1)
+                   Or              -> (0, 1)
+                   And             -> (0, 1)
+                   LessThanOrEqual -> (0, 1)
+                   LessThan        -> (0, 1)
+                   MoreThanOrEqual -> (0, 1)
+                   MoreThan        -> (0, 1)
 
 data BAssign = Assign
              | BinaryAssign BBinary
@@ -167,7 +172,7 @@ bRValueE :: Parser BRValue
 bRValueE = pratter 0
           <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
           <|> FunctionCall <$> bSingleRValue <*> 
-                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> bSingleRValue <* ws) <* ws)
+                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (spanP (/=',') >>> bRValue) <* ws) <* ws)
 
 bLValue :: Parser BLValue
 bLValue = fmap LName bName
