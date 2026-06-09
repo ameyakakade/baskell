@@ -88,7 +88,7 @@ data BBinary = Or
 
 data BLValue = LName       BName
              | Dereference BRValue
-             | Array       (BRValue, BRValue)     -- TODO: Confirm if this is correct
+             | Array       BRValue BRValue
              deriving (Eq, Show)
 
 data BConstant = Digit Int
@@ -98,6 +98,22 @@ data BConstant = Digit Int
 
 data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
+
+bWhiteSpace skipNewlines = wsf *> stringP "/*" *> findEnd *> wsf
+      <|> wsf
+      where findEnd = Parser $ \input -> do
+                                (a, restIn) <- runParser (spanP (/= '*')) input
+                                let a = runParser (charP '*' *> charP '/') restIn
+                                if isLeft a
+                                then do
+                                  (_, restIn') <- runParser (charP '*') restIn
+                                  runParser findEnd restIn'
+                                else do
+                                  let Right (_, restIn'') = a in Right ("", restIn'')
+            wsf = if skipNewlines then ws else wsnn
+
+bws = bWhiteSpace True
+bwsnn = bWhiteSpace False
 
 finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
 
@@ -184,32 +200,36 @@ bSingleRValue = fmap RLValue bLValue
                 <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
-bStatement = fmap Block (ws *> finiteSelectBracketed '{' '}' (repeatedParser (ws *> bStatement <* ws)))
-                  <|> fmap While (stringP "while" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
-                  <|> fmap Goto (stringP "goto" *> predicateP isSpace "Expected goto." *> ws *>
+bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (bws *> bStatement <* bws)))
+                  <|> fmap While (stringP "while" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
+                  <|> fmap Goto (keywordParser "goto" *>
                                  newErr "Expected a RValue" (selSt >>> bRValue))
-                  <|> fmap Extrn (stringP "extrn" *> predicateP isSpace "Expected extrn." *> ws *>
-                                 newErr "Expected a name." (selSt >>> ((:) <$> (bName <* ws) <*> repeatedParser (ws *> charP ',' *> ws *> bName)) ))
-                  <|> fmap Auto (stringP "auto" *> predicateP isSpace "Expected auto." *> ws *>
-                                 newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* ws) <*> parseNum
-                                                                                                     in (:) <$> (f <* ws) <*> repeatedParser (charP ',' *> f)) ))
-                  <|> fmap IfElse (stringP "if" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
-                      bStatement <*> (Just <$> (stringP "else" *> ws *> bStatement))
-                  <|> fmap IfElse (stringP "if" *> ws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
+                  <|> fmap Extrn (keywordParser "extrn" *>
+                                 newErr "Expected a name." (selSt >>> ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
+                  <|> fmap Auto (keywordParser "auto" *>
+                                 newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* bws) <*> parseNum
+                                                                                                     in (:) <$> (f <* bws) <*> repeatedParser (charP ',' *> f)) ))
+                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
+                      bStatement <*> (Just <$> (stringP "else" *> bws *> bStatement))
+                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
                       bStatement <*> return Nothing
-                  <|> fmap BReturn (stringP "return" *> ws *> charP ';' *> pure Nothing)
-                  <|> fmap BReturn (stringP "return" *> predicateP isSpace "Expected return." *> ws *> (selSt >>> fmap Just bRValue))
+                  <|> fmap BReturn (stringP "return" *> bws *> charP ';' *> pure Nothing)
+                  <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
                   <|> fmap SRValue (selSt >>> bRValue)
 
     where selSt = spanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
-                  
+          keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
+          keywordSpacer i = Parser $ \input -> do
+                            runParser (predicateP (\x -> (isSpace x) || (x=='/')) ("Expected " ++ i ++ ".")) input
+                            return ("", input)
+
 parseNum :: Parser (Maybe Int)
 parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
-           
+
 bDefinition :: Parser BDefinition
-bDefinition = FDefinition <$> (bName <* ws) <*>
+bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
-               (ws *> repeatedParser (spanP (==',') *> ws *> bName <* ws) <* ws) <*> (wsnn *> bStatement)
+               (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> bStatement)
 
 bProgram :: Parser BProgram
-bProgram = repeatedParser (ws *> bDefinition <* ws)
+bProgram = repeatedParser (bws *> bDefinition <* bws)

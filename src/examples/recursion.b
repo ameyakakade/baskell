@@ -1,3 +1,5 @@
+/* this program uses recursion
+   to find out factorial of number */
 main()
 {
     extrn printword,exit;

@@ -1,7 +1,7 @@
 module TargetGasAArch64MacOS where
 
 import Generator
-import BParser (BBinary(Add, Subtract, Multiply, Equal, NotEqual))
+import BParser (BBinary(Add, Subtract, Multiply, Equal, NotEqual, LessThan, MoreThan))
 import Data.Word
 import Data.List
 
