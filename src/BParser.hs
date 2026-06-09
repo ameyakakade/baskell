@@ -57,6 +57,8 @@ bindingPower b = case b of
                    LessThan        -> (0, 1)
                    MoreThanOrEqual -> (0, 1)
                    MoreThan        -> (0, 1)
+                   ShiftLeft       -> (0, 1)
+                   ShiftRight      -> (0, 1)
 
 data BAssign = Assign
              | BinaryAssign BBinary
@@ -119,7 +121,7 @@ bwsnn = bWhiteSpace False
 finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
 
 pratter :: Int -> Parser BRValue
-pratter minBP = bws *> bSingleRValue >>= loop
+pratter minBP = bws *> bSingleRValue <* bws >>= loop
     where loop lhs = Parser
                      $ \(c,i) ->
                          if null i
@@ -183,9 +185,9 @@ bName = Parser $ \(loc, i) -> do
 bRValue :: Parser BRValue
 bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':') <* charP ':' <*> spanP (const True)) >>=
            \(c,l,r) -> Parser $ \input -> do
-                       (ce, _) <- startParser bRValue c
-                       (le, _) <- startParser bRValue l
-                       (re, _) <- startParser bRValue r
+                       (ce, _) <- startParser (bws *> bRValue) c
+                       (le, _) <- startParser (bws *> bRValue) l
+                       (re, _) <- startParser (bws *> bRValue) r
                        return (Ternary ce le re, input)
            )
            <|> newErr "Could not parse expression." (pratter 0)
@@ -198,7 +200,13 @@ bLValue = fmap Array bRValueSingleLValue <*> finiteSelectBracketed '[' ']' bRVal
           <|> bSingleLValue
 
 bSingleRValue :: Parser BRValue
-bSingleRValue = fmap RLValue bLValue
+bSingleRValue = RUnary <$> bUnary <*> bSingleRValueNoUnary
+      <|> IncDecPost <$> bSingleLValue <*> bIncDec
+      <|> IncDecPre <$> bIncDec <*> bSingleLValue
+      <|> bSingleRValueNoUnary
+
+bSingleRValueNoUnary :: Parser BRValue
+bSingleRValueNoUnary = fmap RLValue bLValue
                 <|> bRValueOnly
 
 bSingleLValue :: Parser BLValue
