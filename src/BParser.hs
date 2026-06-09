@@ -48,6 +48,7 @@ bindingPower b = case b of
                    Subtract        -> (2, 3)
                    Multiply        -> (4, 5)
                    Divide          -> (4, 5)
+                   Modulo          -> (4, 5)
                    Equal           -> (0, 1)
                    NotEqual        -> (0, 1)
                    Or              -> (0, 1)
@@ -118,14 +119,14 @@ bwsnn = bWhiteSpace False
 finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
 
 pratter :: Int -> Parser BRValue
-pratter minBP = bSingleRValue >>= loop
+pratter minBP = bws *> bSingleRValue >>= loop
     where loop lhs = Parser
                      $ \(c,i) ->
                          if null i
                          then Right (lhs, (c,i))
                          else do
                            let input = (c,i)
-                           (op, restIn) <- runParser bBinary input
+                           (op, restIn) <- runParser (bws *> bBinary) input
                            let (lbp, rbp) = bindingPower op
                            if lbp<minBP
                            then Right (lhs, input)
@@ -222,9 +223,9 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (b
                   <|> fmap Auto (keywordParser "auto" *>
                                  newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* bws) <*> parseNum
                                                                                                      in (:) <$> (f <* bws) <*> repeatedParser (charP ',' *> f)) ))
-                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
-                      bStatement <*> (Just <$> (stringP "else" *> bws *> bStatement))
-                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*>
+                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue) <* bws) <*>
+                      bStatement <*> (Just <$> (bws *> stringP "else" *> bws *> bStatement))
+                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue) <* bws) <*>
                       bStatement <*> return Nothing
                   <|> fmap BReturn (stringP "return" *> bws *> charP ';' *> pure Nothing)
                   <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
