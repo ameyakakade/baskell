@@ -154,7 +154,7 @@ gFunction bname args block c = emptyCompiler { program = newestProgram, errors =
                     (nameLoc bname)
                     (functionBody c')
                     (fromIntegral $ length args)
-                    (fromIntegral $ cAutoVarCountMax c')
+                    (fromIntegral $ cAutoVarCountMax c' - 1)
 
           newestProgram = let newProgram = program c' in newProgram { functions = newFunc:functions newProgram }
 
@@ -192,12 +192,14 @@ gAuto = foldr declareVarAuto
 
 gRValue :: Compiler -> BRValue -> (Arg, Compiler)
 gRValue c rvalue = case rvalue of
-                     FunctionCall f args -> gFunctionCall f args c
+                     FunctionCall f args  -> gFunctionCall f args c
                      Assignment l assOp r -> gAssignment c l assOp r
-                     RLValue a -> gLValue c a
-                     RConstant a -> gConstant c a
-                     Binary l op r -> gBinary l op r c
-                     BracketRValue rv -> gRValue c rv
+                     RLValue a            -> gLValue c a
+                     RConstant a          -> gConstant c a
+                     Binary l op r        -> gBinary l op r c
+                     BracketRValue rv     -> gRValue c rv
+                     IncDecPost l op      -> undefined
+                     IncDecPre  op l      -> undefined
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
 gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
@@ -232,8 +234,7 @@ gConstant c constantValue = case constantValue of
                               Chars a -> (DataOffset dataLength, c { program = oldProgram { staticData = newStaticData } })
                                   where oldProgram = program c
                                         oldStaticData = staticData oldProgram
-                                        newStaticData = oldStaticData ++ currStaticData
-                                        Right (currStaticData, _) = startParser escapeChars a
+                                        newStaticData = oldStaticData ++ (fmap (fromIntegral . ord) a)
                                         dataLength = fromIntegral $ length oldStaticData
 
 gBinary :: BRValue -> BBinary -> BRValue -> Compiler -> (Arg, Compiler)
@@ -263,16 +264,6 @@ gIfElse c cond tst (Just fst) = newLabel (addOp (Label afterElseLabel) c''')
           c'' = addOp (JmpLabel afterElseLabel) $
                 gStatement (addOp (JmpIfZeroLabel elseLabel arg) c') tst
           c''' = gStatement (newLabel (addOp (Label elseLabel) c'')) fst
-
-escapeChars :: Parser [Word8]
-escapeChars = repeatedParser $
-              (charP '*' *> (charEscape <$> pan))
-              <|> (fromIntegral . ord <$> pan)
-    where pan = predicateP (const True) "Char"
-          charEscape c = (fromIntegral . ord) $ case c of
-                           '0' -> '\0'
-                           '*' -> '*'
-                           'n' -> '\n'
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
