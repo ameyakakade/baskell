@@ -42,8 +42,18 @@ aFunctionEpilogue countParam countAutoVars = "ADD SP, SP, #" ++ show stackOffset
 storeVarOnStack :: Word -> Word -> String
 storeVarOnStack reg offset = "STR " ++ "X" ++ show reg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
-loadVarFromStack :: Word -> Word -> String
-loadVarFromStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
+loadVarInStack :: Word -> Word -> String
+loadVarInStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
+
+storeVarInMem :: Word -> Word -> String
+storeVarInMem reg ptrOffset = loadVarInStack (reg+1) ptrOffset ++
+                              "STR X" ++ show reg ++ ", [X" ++ show (reg+1) ++ ", #0]"
+                              ++ "\n; storing variable in memory"
+
+loadVarInMem :: Word -> Word -> String
+loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
+                                 "LDR X0, [X" ++ show destReg ++ ", #0]\n"
+                                 ++ "\n; loading variable in memory"
 
 aOp :: String -> Word -> Word -> Op -> String
 aOp funName countParam countAutoVars o = case o of
@@ -52,9 +62,11 @@ aOp funName countParam countAutoVars o = case o of
                                          storeVarOnStack 0 offset
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 loc
+          MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 ptrLoc
+          Index dest ptsArg offsetArg -> aBinary Add dest ptsArg offsetArg -- Not sure if arrays in b are word index or byte indexed
           Label labelN -> funName ++ show labelN ++ ":"
           JmpLabel labelN -> "B " ++ funName ++ show labelN
-          JmpIfZeroLabel labelN arg -> aArg 0 arg ++
+          JmpIfZeroLabel labelN arg -> aArg 0 arg ++ 
                                       "CMP X0, #0\n" ++
                                       "B.EQ " ++ funName ++ show labelN
           Return Nothing -> aFunctionEpilogue countParam countAutoVars
@@ -69,7 +81,8 @@ aArg reg arg = case arg of
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", .dat@PAGEOFF\n" ++
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", #" ++ show doff ++ "\n"
              Literal a -> "MOV X" ++ show reg ++ ", #" ++ show a ++ "\n"
-             AutoVar autoVarOffset -> loadVarFromStack reg autoVarOffset
+             AutoVar autoVarOffset -> loadVarInStack reg autoVarOffset
+             Deref autoVarOffset -> loadVarInMem reg autoVarOffset
 
 aBinary :: BinOp -> Word -> Arg -> Arg -> String
 aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++

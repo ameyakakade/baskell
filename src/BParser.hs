@@ -96,7 +96,7 @@ data BLValue = LName       BName
              deriving (Eq, Show)
 
 data BConstant = Digit Int
-               | Char Char
+               | CharConst Char
                | Chars String
                deriving (Eq, Show)
 
@@ -165,7 +165,7 @@ safeSpanP p = Parser $ \(c,i) -> if i/=[]
 -- it even works for nested brackets
 
 selectBracketed sI eI n = Parser $ \input -> do
-                            let o = runParser (newErr ("Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair, got mismatched brackets" ) $ selectBracketedE sI eI n) input
+                            let o = runParser (replaceErr ("Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair, possibly mismatched brackets." ) $ selectBracketedE sI eI n) input
                             if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
@@ -239,17 +239,17 @@ bBinary = fmap (const Or) (stringP "|")
 
 bConstant :: Parser BConstant
 bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit)
-            <|> fmap Char (charP '`' *> Parser (\input -> do
-                                           (a, restIn) <- runParser (escapedStringP (/='`')) input
+            <|> fmap CharConst (charP '\'' *> Parser (\input -> do
+                                           (a, restIn) <- runParser (escapedStringP (/='\'')) input
                                            if length a == 1
                                            then let [a1]=a in return (a1, restIn)
                                            else Left (["Expected only one character"], restIn)
-                                        ) <* charP '`')
+                                        ) <* charP '\'')
             <|> fmap Chars (charP '"' *> escapedStringP (/='"') <* charP '"')
 
 bName :: Parser BName
 bName = Parser $ \(loc, i) -> do
-          (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP isAlphaNum) (loc, i)
+          (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
           return (BName r loc, restIn)
 
 bRValue :: Parser BRValue
@@ -260,8 +260,8 @@ bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':
                        (re, _) <- startParser (bws *> bRValue) r
                        return (Ternary ce le re, input)
            )
+           <|> Assignment <$> (safeSpanP (/='=') >>> (bLValue <* ws)) <*> (bAssign <* ws) <*> bRValue
            <|> newErr "Could not parse expression." (pratter 0)
-           <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
            <|> FunctionCall <$> bSingleRValue <*> 
                   finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
 
@@ -300,7 +300,7 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (b
                                  newErr "Expected a name." (selSt >>> ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
                   <|> fmap Auto (keywordParser "auto" *>
                                  newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* bws) <*> parseNum
-                                                                                                     in (:) <$> (f <* bws) <*> repeatedParser (charP ',' *> f)) ))
+                                                                       in (:) <$> (f <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> f)) ))
                   <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue) <* bws) <*>
                       bStatement <*> (Just <$> (bws *> stringP "else" *> bws *> bStatement))
                   <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue) <* bws) <*>

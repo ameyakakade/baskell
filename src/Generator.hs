@@ -28,7 +28,7 @@ data Op = UnaryNot        Word   Arg          -- result, arg
         | Index           Word   Arg  Arg     -- result, arg, offset
         | AutoAssign      Word   Arg          -- index, arg
         | ExternalAssign  String Arg          -- name, arg
-        | Store           Word   Arg          -- index, arg
+        | MemoryAssign    Word   Arg          -- auto var index to be dereferenced, arg
         | Funcall         Word   Arg  [Arg]   -- result, fn, args
         | Label           Word                -- label
         | JmpLabel        Word                -- label index
@@ -215,6 +215,7 @@ gAssignment c lValue Assign rValue = (lArg, addOp newOp c'')
           newOp = case lArg of
                     External a -> ExternalAssign a rArg
                     AutoVar a -> AutoAssign (fromIntegral a) rArg
+                    Deref a -> MemoryAssign a rArg
 gAssignment c lValue (BinaryAssign bop) rValue = (lArg, c''')
     where (rArg, c') = gRValue c rValue
           (lArg, c'') = gLValue c' lValue
@@ -232,11 +233,17 @@ gLValue c l = case l of
                                                                  StorageExternal s -> External s
                                                                  StorageAuto i -> AutoVar (fromIntegral i), c)
                                                          else (bogusArg, addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'") c)
+                Array ptr offset -> let (ptrArg, c') = gRValue c ptr
+                                        (offsetArg, c'') = gRValue c' offset
+                                    in (Deref (cAutoVarCount c''), addOp (Index (cAutoVarCount c'') ptrArg offsetArg) (allocateAutoVariable 1 c''))
+                Dereference i    -> let (derefArg, c') = gRValue c i
+                                    in case derefArg of
+                                         AutoVar a -> (Deref a, c')
 
 gConstant :: Compiler -> BConstant -> (Arg, Compiler)
 gConstant c constantValue = case constantValue of
                               Digit a -> (Literal $ fromIntegral a, c)
-                              Char a -> (Literal $ fromIntegral $ ord a, c)
+                              CharConst a -> (Literal $ fromIntegral $ ord a, c)
                               Chars a -> (DataOffset dataLength, c { program = oldProgram { staticData = newStaticData } })
                                   where oldProgram = program c
                                         oldStaticData = staticData oldProgram
