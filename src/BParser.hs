@@ -4,6 +4,7 @@ import Parser
 
 import Data.Char
 import Data.Either
+import Data.Maybe
 import Control.Applicative
 
 type BProgram = [BDefinition]
@@ -118,6 +119,70 @@ bWhiteSpace skipNewlines = wsf *> stringP "/*" *> findEnd *> wsf
 bws = bWhiteSpace True
 bwsnn = bWhiteSpace False
 
+escapedStringP :: (Char -> Bool) -> Parser String
+escapedStringP predicate = Parser f
+  where
+    f (c, []) = Right ([], (c, []))
+    f (c, x:xs)
+      | x=='*' = let (a:as) = xs
+                     a' = escapedChars a
+                 in if isNothing a'
+                    then Left (["Invalid escape char"] ,(c, xs))
+                    else let b = f (c, as)
+                         in if isRight b
+                            then let Right (ys, (c', zs)) = b
+                                     c'' = c'+2
+                                 in Right (fromJust a':ys, (c'', zs))
+                            else b
+      | predicate x = let a = f (c, xs)
+                      in if isRight a
+                         then let Right (ys, (c', zs)) = a
+                                  c'' = c'+1
+                              in Right (x:ys, (c'', zs))
+                         else a
+      | otherwise   = Right ([], (c, x:xs))
+    escapedChars c = case c of
+                       '0' -> Just '\0'
+                       'n' -> Just '\n'
+                       '"' -> Just '\"'
+                       '*' -> Just '*'
+                       a   -> Nothing
+
+safeSpanP :: (Char -> Bool) -> Parser String
+safeSpanP p = Parser $ \(c,i) -> if i/=[]
+                                             then
+                                                 let b = runParser (sp <|> fmap (\x -> [x]) (predicateP p "Error in safeSpanP")) (c,i)
+                                                 in if isRight b
+                                                 then do
+                                                   let Right (ob, restIn) = b
+                                                   (bs, restIn') <- runParser (safeSpanP p) restIn
+                                                   return (ob++bs, restIn')
+                                                 else return ([], (c,i))
+                                      else return ([], (c,i))
+    where sp = (\x y z -> [x]++y++[z]) <$> charP '"' <*> escapedStringP (/='"') <*> charP '"'
+
+-- this function selects a string surrounded by brackets.
+-- it even works for nested brackets
+
+selectBracketed sI eI n = Parser $ \input -> do
+                            let o = runParser (newErr ("Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair, got mismatched brackets" ) $ selectBracketedE sI eI n) input
+                            if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
+
+selectBracketedE :: Char -> Char -> Int -> Parser String
+selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
+    where p = (\c -> c /= sI && c /= eI)
+          f b = Parser $ \i ->
+                let z bs ns = do
+                      (s, restIn) <- runParser (safeSpanP p) i
+                      (a, restIn') <- runParser (selectBracketedE sI eI ns) restIn
+                      Right (bs++s++a, restIn')
+                in
+                  if b==eI
+                  then if n == 1
+                       then Right ([b], i)
+                       else z [b] (n-1)
+                  else z [b] (n+1)
+
 finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
 
 pratter :: Int -> Parser BRValue
@@ -174,7 +239,12 @@ bBinary = fmap (const Or) (stringP "|")
 
 bConstant :: Parser BConstant
 bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit)
-            <|> fmap Char (charP '`' *> (head <$> escapedStringP (/='`')) <* charP '`')
+            <|> fmap Char (charP '`' *> (Parser $ \input -> do
+                                           (a, restIn) <- runParser (escapedStringP (/='`')) input
+                                           if length a == 1
+                                           then let [a1]=a in return (a1, restIn)
+                                           else Left (["Expected only one character"], restIn)
+                                        ) <* charP '`')
             <|> fmap Chars (charP '"' *> escapedStringP (/='"') <* charP '"')
 
 bName :: Parser BName
@@ -193,7 +263,7 @@ bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':
            <|> newErr "Could not parse expression." (pratter 0)
            <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
            <|> FunctionCall <$> bSingleRValue <*> 
-                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (spanP (/=',') >>> bRValue) <* ws))
+                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
 
 bLValue :: Parser BLValue
 bLValue = fmap Array bRValueSingleLValue <*> finiteSelectBracketed '[' ']' bRValue
@@ -239,7 +309,7 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (b
                   <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
                   <|> fmap SRValue (selSt >>> ignoreErrorIndex bRValue)
 
-    where selSt = spanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
+    where selSt = safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
           keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
           keywordSpacer i = Parser $ \input -> do
                             runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
@@ -255,27 +325,3 @@ bDefinition = FDefinition <$> (bName <* bws) <*>
 
 bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
-
-escapedStringP :: (Char -> Bool) -> Parser String
-escapedStringP predicate = Parser (Right . f)
-  where
-    f (c, []) = ([], (c, []))
-    f (c, x:xs)
-      | x=='*' = let (a:as) = xs
-                     escapedChar = escapedChars a
-                     (ys, (c', zs)) = f (c, as)
-                     c'' = c'+1
-                 in (escapedChar:ys, (c'', zs))
-      | predicate x = let (ys, (c', zs)) = f (c, xs)
-                          c'' = c'+1
-                      in (x:ys, (c'', zs))
-      | otherwise   = ([], (c, x:xs))
-    escapedChars c = case c of
-                       '0' -> '\0'
-                       'n' -> '\n'
-                       '"' -> '\"'
-                       '*' -> '*'
-
--- TODO at 175: Make parsing 1 char return error when there is more than more char
--- TODO at 195: Make parsing arguments correctly handle , inside strings
--- TODO at 259: Make escapedStringP error out when there is unexpected escape char

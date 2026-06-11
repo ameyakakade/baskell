@@ -234,7 +234,7 @@ gConstant c constantValue = case constantValue of
                               Chars a -> (DataOffset dataLength, c { program = oldProgram { staticData = newStaticData } })
                                   where oldProgram = program c
                                         oldStaticData = staticData oldProgram
-                                        newStaticData = oldStaticData ++ (fmap (fromIntegral . ord) a)
+                                        newStaticData = oldStaticData ++ fmap (fromIntegral . ord) a
                                         dataLength = fromIntegral $ length oldStaticData
 
 gBinary :: BRValue -> BBinary -> BRValue -> Compiler -> (Arg, Compiler)

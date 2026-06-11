@@ -81,28 +81,6 @@ ws :: Parser String
 ws = spanP isSpace
 wsnn = spanP (==' ')
 
--- this function selects a string surrounded by brackets.
--- it even works for nested brackets
-
-selectBracketed sI eI n = Parser $ \input -> do
-                            let o = runParser (newErr ("Found " ++ "'" ++ [sI] ++ "'") $ selectBracketedE sI eI n) input
-                            if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
-
-selectBracketedE :: Char -> Char -> Int -> Parser String
-selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
-    where p c = c /= sI && c /= eI
-          f b = Parser $ \i ->
-                let z bs ns = do
-                      (s, restIn) <- runParser (spanP p) i
-                      (a, restIn') <- runParser (selectBracketedE sI eI ns) restIn
-                      Right (bs++s++a, restIn')
-                in
-                  if b==eI
-                  then if n == 1
-                       then Right ([b], i)
-                       else z [b] (n-1)
-                  else z [b] (n+1)
-
 repeatedParser :: Parser a -> Parser [a]
 repeatedParser parser = Parser $ \(c,i) -> if i/=[]
                                              then do
