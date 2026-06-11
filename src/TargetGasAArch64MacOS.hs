@@ -1,7 +1,7 @@
 module TargetGasAArch64MacOS where
 
 import Generator
-import BParser (BBinary(Add, Subtract, Multiply, Equal, NotEqual, LessThan, MoreThan))
+import BParser (BBinary(..))
 import Data.Word
 import Data.List
 
@@ -75,16 +75,23 @@ aBinary :: BinOp -> Word -> Arg -> Arg -> String
 aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                     aArg 2 rArg ++
                                     (case binOp of
-                                      Add      -> "ADD X0, X1, X2\n"
-                                      Subtract -> "SUB X0, X1, X2\n"
-                                      Multiply -> "MUL X0, X1, X2\n"
-                                      Equal    -> "CMP X1, X2\n" ++
-                                                  "CSET X0, EQ\n"
-                                      NotEqual -> "CMP X1, X2\n" ++
-                                                  "CSET X0, NE\n"
-                                      LessThan -> "CMP X1, X2\n" ++
-                                                  "CSET X0, LT\n"
-                                      MoreThan -> "CMP X1, X2\n" ++
-                                                  "CSET X0, GT\n"
+                                      Add             -> "ADD X0, X1, X2\n"
+                                      Subtract        -> "SUB X0, X1, X2\n"
+                                      Multiply        -> "MUL X0, X1, X2\n"
+                                      Equal           -> "CMP X1, X2\n" ++
+                                                         "CSET X0, EQ\n"
+                                      NotEqual        -> "CMP X1, X2\n" ++
+                                                         "CSET X0, NE\n"
+                                      LessThan        -> "CMP X1, X2\n" ++
+                                                         "CSET X0, LT\n"
+                                      MoreThan        -> "CMP X1, X2\n" ++
+                                                         "CSET X0, GT\n"
+                                      LessThanOrEqual -> "CMP X1, X2\n" ++
+                                                         "CSET X0, LE\n"
+                                      MoreThanOrEqual -> "CMP X1, X2\n" ++
+                                                         "CSET X0, GE\n"
+                                      Modulo          -> "SDIV X0, X1, X2\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
+                                                         "MSUB X0, X0, X2, X1\n"  -- which is q then we do (q*b -a) which is mod
+                                      Or              -> "ORR X0, X1, X2\n"
                                     ) ++
                                     storeVarOnStack 0 resultLoc

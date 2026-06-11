@@ -170,7 +170,6 @@ gStatement c statement = case statement of
                                                            where (rArg, c') = gRValue c a
                                                                  newOp = Return $ Just rArg
                                BReturn Nothing      -> addOp (Return Nothing) c
-                                        
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
@@ -198,8 +197,8 @@ gRValue c rvalue = case rvalue of
                      RConstant a          -> gConstant c a
                      Binary l op r        -> gBinary l op r c
                      BracketRValue rv     -> gRValue c rv
-                     IncDecPost l op      -> undefined
-                     IncDecPre  op l      -> undefined
+                     IncDecPost l op      -> gIncDec l op True c
+                     IncDecPre  op l      -> gIncDec l op False c
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
 gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
@@ -210,13 +209,20 @@ gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
           newOp = Funcall autoVarOffset fLocArg fArgsArg
 
 gAssignment :: Compiler -> BLValue -> BAssign -> BRValue -> (Arg, Compiler)
-gAssignment c lValue assOp rValue = case assOp of
-                                      Assign -> (lArg, addOp newOp c'')
+gAssignment c lValue Assign rValue = (lArg, addOp newOp c'')
     where (rArg, c') = gRValue c rValue
           (lArg, c'') = gLValue c' lValue
           newOp = case lArg of
                     External a -> ExternalAssign a rArg
                     AutoVar a -> AutoAssign (fromIntegral a) rArg
+gAssignment c lValue (BinaryAssign bop) rValue = (lArg, c''')
+    where (rArg, c') = gRValue c rValue
+          (lArg, c'') = gLValue c' lValue
+          c''' = case lArg of
+                    AutoVar a -> addOp (OpBin bop a lArg rArg) c''
+                    External a -> addOp (ExternalAssign a (AutoVar (cAutoVarCount c''))) $
+                                  addOp (OpBin bop (cAutoVarCount c'') lArg rArg)
+                                  (allocateAutoVariable 1 c'')
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
@@ -242,7 +248,18 @@ gBinary l op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 
     where (lArg, c') = gRValue c l
           (rArg, c'') = gRValue c' r
           resultAutoVar = cAutoVarCount c''
-          newOp = OpBin op resultAutoVar lArg rArg 
+          newOp = OpBin op resultAutoVar lArg rArg
+
+gIncDec :: BLValue -> BIncDec -> Bool -> Compiler -> (Arg, Compiler)
+gIncDec l op post c = if post
+                      then case op of
+                             Increment -> (AutoVar (cAutoVarCount c'), snd $ f Add l $ addOp (AutoAssign (cAutoVarCount c') varL) (allocateAutoVariable 1 c'))
+                             Decrement -> (AutoVar (cAutoVarCount c'), snd $ f Subtract l $ addOp (AutoAssign (cAutoVarCount c') varL) (allocateAutoVariable 1 c'))
+                      else case op of
+                             Increment -> f Add l c
+                             Decrement -> f Subtract l c
+    where (varL, c') = gLValue c l
+          f a loo coo = gAssignment coo loo (BinaryAssign a) (RConstant $ Digit 1)
 
 gWhile :: Compiler -> BRValue -> BStatement -> Compiler
 gWhile c cond st = newLabel $ addOp (Label (functionLabelCount c''')) c'''

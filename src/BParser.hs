@@ -45,21 +45,21 @@ data BRValue = BracketRValue BRValue
           -- left binding power, right binding power
 bindingPower :: BBinary -> (Int, Int)
 bindingPower b = case b of
-                   Add             -> (2, 3)
-                   Subtract        -> (2, 3)
-                   Multiply        -> (4, 5)
-                   Divide          -> (4, 5)
-                   Modulo          -> (4, 5)
-                   Equal           -> (0, 1)
-                   NotEqual        -> (0, 1)
+                   Add             -> (3, 4)
+                   Subtract        -> (3, 4)
+                   Multiply        -> (5, 6)
+                   Divide          -> (5, 6)
+                   Modulo          -> (5, 6)
+                   Equal           -> (1, 2)
+                   NotEqual        -> (1, 2)
                    Or              -> (0, 1)
                    And             -> (0, 1)
-                   LessThanOrEqual -> (0, 1)
-                   LessThan        -> (0, 1)
-                   MoreThanOrEqual -> (0, 1)
-                   MoreThan        -> (0, 1)
-                   ShiftLeft       -> (0, 1)
-                   ShiftRight      -> (0, 1)
+                   LessThanOrEqual -> (1, 2)
+                   LessThan        -> (1, 2)
+                   MoreThanOrEqual -> (1, 2)
+                   MoreThan        -> (1, 2)
+                   ShiftLeft       -> (1, 2)
+                   ShiftRight      -> (1, 2)
 
 data BAssign = Assign
              | BinaryAssign BBinary
@@ -151,7 +151,7 @@ escapedStringP predicate = Parser f
 safeSpanP :: (Char -> Bool) -> Parser String
 safeSpanP p = Parser $ \(c,i) -> if i/=[]
                                              then
-                                                 let b = runParser (sp <|> fmap (\x -> [x]) (predicateP p "Error in safeSpanP")) (c,i)
+                                                 let b = runParser (sp <|> fmap (:[]) (predicateP p "Error in safeSpanP")) (c,i)
                                                  in if isRight b
                                                  then do
                                                    let Right (ob, restIn) = b
@@ -170,7 +170,7 @@ selectBracketed sI eI n = Parser $ \input -> do
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
 selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
-    where p = (\c -> c /= sI && c /= eI)
+    where p c = c /= sI && c /= eI
           f b = Parser $ \i ->
                 let z bs ns = do
                       (s, restIn) <- runParser (safeSpanP p) i
@@ -239,7 +239,7 @@ bBinary = fmap (const Or) (stringP "|")
 
 bConstant :: Parser BConstant
 bConstant = fmap (Digit . read) (fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit)
-            <|> fmap Char (charP '`' *> (Parser $ \input -> do
+            <|> fmap Char (charP '`' *> Parser (\input -> do
                                            (a, restIn) <- runParser (escapedStringP (/='`')) input
                                            if length a == 1
                                            then let [a1]=a in return (a1, restIn)
