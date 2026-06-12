@@ -103,5 +103,5 @@ f >>> g = Parser $ \input -> do
               Left (err, (c', i'))  -> Left (err, (c', i))
 
 ignoreErrorIndex p = Parser $ \input -> do
-                     let o = runParser p input
-                     if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
+                             let o = runParser p input
+                             if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o

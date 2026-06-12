@@ -193,14 +193,18 @@ pratter minBP = bws *> bSingleRValue <* bws >>= loop
                          then Right (lhs, (c,i))
                          else do
                            let input = (c,i)
-                           (op, restIn) <- runParser (bws *> bBinary) input
-                           let (lbp, rbp) = bindingPower op
-                           if lbp<minBP
-                           then Right (lhs, input)
+                           let bop = runParser (bws *> bBinary) input
+                           if isLeft bop
+                           then return (lhs, (c,i))
                            else do
-                             (rhs, restIn') <- runParser (pratter rbp) restIn
-                             (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
-                             Right (flhs, restIn'')
+                             let Right (op, restIn) = bop
+                             let (lbp, rbp) = bindingPower op
+                             if lbp<minBP
+                             then Right (lhs, input)
+                             else do
+                               (rhs, restIn') <- runParser (pratter rbp) restIn
+                               (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
+                               Right (flhs, restIn'')
 
 bIVal :: Parser BIVal
 bIVal = fmap IConstant bConstant
@@ -261,9 +265,9 @@ bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':
                        return (Ternary ce le re, input)
            )
            <|> Assignment <$> (safeSpanP (/='=') >>> (bLValue <* ws)) <*> (bAssign <* ws) <*> bRValue
-           <|> newErr "Could not parse expression." (pratter 0)
            <|> FunctionCall <$> bSingleRValue <*> 
                   finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
+           <|> newErr "Could not parse expression." (pratter 0)
 
 bLValue :: Parser BLValue
 bLValue = fmap Array bRValueSingleLValue <*> finiteSelectBracketed '[' ']' bRValue
@@ -293,21 +297,22 @@ bRValueOnly = fmap RConstant bConstant
 
 bStatement :: Parser BStatement
 bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (bws *> bStatement <* bws)))
-                  <|> fmap While (stringP "while" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue)) <*> bStatement
-                  <|> fmap Goto (keywordParser "goto" *>
-                                 newErr "Expected a RValue" (selSt >>> bRValue))
-                  <|> fmap Extrn (keywordParser "extrn" *>
-                                 newErr "Expected a name." (selSt >>> ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
-                  <|> fmap Auto (keywordParser "auto" *>
-                                 newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* bws) <*> parseNum
-                                                                       in (:) <$> (f <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> f)) ))
-                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue) <* bws) <*>
-                      bStatement <*> (Just <$> (bws *> stringP "else" *> bws *> bStatement))
-                  <|> fmap IfElse (stringP "if" *> bws *> (selectBracketed '(' ')' 0 >>> bRValue) <* bws) <*>
-                      bStatement <*> return Nothing
-                  <|> fmap BReturn (stringP "return" *> bws *> charP ';' *> pure Nothing)
-                  <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
-                  <|> fmap SRValue (selSt >>> ignoreErrorIndex bRValue)
+             <|> fmap While (stringP "while" *> bws *> (charP '(' *> bRValue <* charP ')')) <*> bStatement
+             <|> fmap Goto (keywordParser "goto" *>
+                            newErr "Expected a RValue" (selSt >>> bRValue))
+             <|> fmap Extrn (keywordParser "extrn" *>
+                             newErr "Expected a name." (selSt >>> ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
+             <|> fmap Auto (keywordParser "auto" *>
+                            newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* bws) <*> parseNum
+                                                                  in (:) <$> (f <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> f)) ))
+             <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
+                 bStatement <*> (Just <$> (bws *> stringP "else" *> bws *> bStatement))
+             <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
+                 bStatement <*> return Nothing
+             <|> fmap BReturn (stringP "return" *> bws *> charP ';' *> pure Nothing)
+             <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
+             <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
+             <|> fmap SRValue (newErr "Could not parse expression." $ selSt >>> bRValue)
 
     where selSt = safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
           keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
