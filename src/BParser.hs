@@ -5,6 +5,7 @@ import Parser
 import Data.Char
 import Data.Either
 import Data.Maybe
+import Data.Functor
 import Control.Applicative
 
 type BProgram = [BDefinition]
@@ -18,14 +19,14 @@ data BIVal = IConstant BConstant
 
 data BStatement = Auto     [(BName, Maybe Int)]
                 | Extrn    [BName]
-                | Default  [(BConstant, BStatement)] -- TODO: Confirm if this correct
-                | Case     [(BConstant, BStatement)]
+                | BLabel   BName BStatement
+                | Case     BConstant BStatement
                 | Block    [BStatement]
                 | IfElse   BRValue BStatement (Maybe BStatement)
                 | While    BRValue BStatement
                 | Switch   BRValue BStatement
                 | Goto     BRValue
-                | BReturn   (Maybe BRValue)
+                | BReturn  (Maybe BRValue)
                 | SRValue  BRValue
                 deriving (Eq, Show)
 
@@ -309,9 +310,11 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (b
                  bStatement <*> (Just <$> (bws *> stringP "else" *> bws *> bStatement))
              <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
                  bStatement <*> return Nothing
-             <|> fmap BReturn (stringP "return" *> bws *> charP ';' *> pure Nothing)
+             <|> fmap BReturn ((stringP "return" *> bws *> charP ';') $> Nothing)
              <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
+             <|> fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement
+             <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
              <|> fmap SRValue (newErr "Could not parse expression." $ selSt >>> bRValue)
 
     where selSt = safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
