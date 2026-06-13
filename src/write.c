@@ -20,3 +20,8 @@ void putstr(char* nullTerminatedStr)
 
 size_t printf1(size_t a1) {return printf((void*)a1);}
 size_t printf2(char* a1, size_t a2) {return printf(a1, (void*)a2);}
+
+char gchar(char* str, int index)
+{
+    return str[index];
+}

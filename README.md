@@ -1,5 +1,4 @@
-### Note: This compiler is a work in progress and many features are not implemented. 
-###       All it can do right now is call functions(enough for a hello world!)
+### Note: This compiler is a work in progress and certain features are not implemented. 
 ###       Only MacOS gas AArch64 target is supported.
 
 # Baskell
