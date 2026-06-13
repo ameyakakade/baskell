@@ -11,6 +11,7 @@ import Control.Applicative
 type BProgram = [BDefinition]
 
 data BDefinition = FDefinition {fName :: BName, fArgs :: [BName], fStatement :: BStatement}
+                 | GlobalVar BName (Maybe BConstant)
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -187,7 +188,11 @@ selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
 finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
 
 pratter :: Int -> Parser BRValue
-pratter minBP = bws *> bSingleRValue <* bws >>= loop
+pratter minBP = bws *> (FunctionCall <$> bSingleRValue <*>
+                        finiteSelectBracketed '(' ')'
+                        (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
+                       <|> bSingleRValue
+                       ) <* bws >>= loop
     where loop lhs = Parser
                      $ \(c,i) ->
                          if null i
@@ -266,8 +271,6 @@ bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':
                        return (Ternary ce le re, input)
            )
            <|> Assignment <$> (safeSpanP (/='=') >>> (bLValue <* ws)) <*> (bAssign <* ws) <*> bRValue
-           <|> FunctionCall <$> bSingleRValue <*> 
-                  finiteSelectBracketed '(' ')' (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
            <|> newErr "Could not parse expression." (pratter 0)
 
 bLValue :: Parser BLValue
@@ -276,9 +279,9 @@ bLValue = fmap Array bRValueSingleLValue <*> finiteSelectBracketed '[' ']' bRVal
 
 bSingleRValue :: Parser BRValue
 bSingleRValue = RUnary <$> bUnary <*> bSingleRValueNoUnary
-      <|> IncDecPost <$> bSingleLValue <*> bIncDec
-      <|> IncDecPre <$> bIncDec <*> bSingleLValue
-      <|> bSingleRValueNoUnary
+                <|> IncDecPost <$> bSingleLValue <*> bIncDec
+                <|> IncDecPre <$> bIncDec <*> bSingleLValue
+                <|> bSingleRValueNoUnary
 
 bSingleRValueNoUnary :: Parser BRValue
 bSingleRValueNoUnary = fmap RLValue bLValue
@@ -330,6 +333,8 @@ bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
                (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> bStatement)
+              <|> fmap GlobalVar (bName <* bws) <*> (Just <$> bConstant <* charP ';')
+              <|> fmap GlobalVar (bName <* bws) <*> (charP ';' $> Nothing)
 
 bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
