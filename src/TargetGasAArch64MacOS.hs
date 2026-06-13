@@ -11,9 +11,7 @@ asm p = aProgramPrologue ++ "\n" ++
         aDataSection (staticData p)
 
 aProgramPrologue :: String
-aProgramPrologue = ".text\n" ++
-                   ".global _main\n" ++
-                   ".align 4\n"
+aProgramPrologue = ".text"
 
 aDataSection :: [Word8] -> String
 aDataSection a = ".data\n.dat: .byte " ++ intercalate "," (map show a)
@@ -24,11 +22,14 @@ aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ 
               aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
 aFunctionPrologue :: String -> Word -> Word -> String
-aFunctionPrologue name countParam countAutoVars = "_" ++ name ++ ":\n" ++
+aFunctionPrologue name countParam countAutoVars = "\n.global _" ++ name ++ "\n" ++
+                                                  ".align 4\n" ++
+                                                  "_" ++ name ++ ":\n" ++
                                                   "STP LR, FP, [SP, #-16]!\n" ++
                                                   "SUB SP, SP, #" ++ show stackOffset ++ "\n" ++
                                                   "MOV FP, SP\n" ++
-                                                  concat (zipWith storeVarOnStack [0..countParam] [0..countParam]) 
+                                                  if countParam==0 then []
+                                                  else concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)]) 
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
 
@@ -63,6 +64,7 @@ aOp funName countParam countAutoVars o = case o of
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 loc
           MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 ptrLoc
+          ExternalAssign loc arg -> undefined
           Index dest ptsArg offsetArg -> aBinary Add dest ptsArg offsetArg -- Not sure if arrays in b are word index or byte indexed
           Label labelN -> funName ++ show labelN ++ ":"
           JmpLabel labelN -> "B " ++ funName ++ show labelN
@@ -83,6 +85,8 @@ aArg reg arg = case arg of
              Literal a -> "MOV X" ++ show reg ++ ", #" ++ show a ++ "\n"
              AutoVar autoVarOffset -> loadVarInStack reg autoVarOffset
              Deref autoVarOffset -> loadVarInMem reg autoVarOffset
+             External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
+                              "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n"
 
 aBinary :: BinOp -> Word -> Arg -> Arg -> String
 aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
@@ -108,3 +112,5 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                       Or              -> "ORR X0, X1, X2\n"
                                     ) ++
                                     storeVarOnStack 0 resultLoc
+
+-- TODO: make arrays of words instead of bytes
