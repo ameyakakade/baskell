@@ -13,8 +13,6 @@ import Control.Applicative
 
 data Arg = AutoVar     Word
          | Deref       Word
-         | RefAutoVar  Word
-         | RefExternal String
          | External    String
          | Literal     Word -- has to be word
          | DataOffset  Word
@@ -41,50 +39,63 @@ data Storage = StorageExternal String
                deriving (Eq, Show)
 
 data Var = Var {
-      varName :: String,
+      varName    :: String,
       varStorage :: Storage,
-      varLoc :: Int
+      varLoc     :: Int
     } deriving (Eq, Show)
 
 data Function = Function {
-      funName :: String,
-      funLoc :: Int,
-      body :: [Op],
-      paramsCount :: Word,
+      funName      :: String,
+      funLoc       :: Int,
+      body         :: [Op],
+      paramsCount  :: Word,
       autoVarCount :: Word
     } deriving (Eq, Show)
 
 data IRProgram = IRProgram {
-      functions :: [Function],
-      staticData :: [Word8],
-      extrns :: [String]
+      functions     :: [Function],
+      staticData    :: [Word8],
+      globalVars    :: [(String, Maybe Int, [Arg])],
+      extrns        :: [String]
     } deriving (Eq, Show)
 
 data GenError = GenError {
-      genErrorString :: String,
+      genErrorString    :: String,
       genErrorLocLength :: Maybe (Int, Int)
     } deriving (Eq, Show)
 
 data Compiler = Compiler {
       program :: IRProgram,
-      errors :: [GenError],
+      errors  :: [GenError],
 
       vars :: [[Var]],
 
-      functionNames :: [BName],
+      globalNames  :: [BName],
 
-      functionBody :: [Op],
+      functionBody        :: [Op],
       functionBlocksCount :: Word,
-      functionLabelCount :: Word,
+      functionLabelCount  :: Word,
 
-      cAutoVarCount :: Word,
+      cAutoVarCount    :: Word,
       cAutoVarCountMax :: Word
     } deriving (Eq, Show)
 
-emptyCompiler = Compiler (IRProgram [] [] []) [] [[]] [] [] 0 0 0 0
+emptyCompiler = Compiler (IRProgram [] [] [] []) [] [[]] [] [] 0 0 0 0
 
 initCompiler :: BProgram -> Compiler
-initCompiler ast = emptyCompiler { functionNames = map fName ast }
+initCompiler = foldl' folder emptyCompiler
+    where folder c d = case d of
+                         FDefinition fn _ _ -> c { globalNames = fn:globalNames c }
+                         GlobalVar vn vs vi -> let (ivs, c') =
+                                                       foldr (\g (gs, x) -> case g of
+                                                                              IConstant a -> let (na, x') = gConstant x a
+                                                                                             in (na:gs, x')
+                                                                              IName a -> let (na, x') = gLValue x (LName a)
+                                                                                         in (na:gs, x')
+                                                                              ) ([], c) vi
+                                                   newGV = (name vn, vs, ivs)
+                                                   newP = (program c') { globalVars = newGV:globalVars (program c') }
+                                               in (declareVarExtrn vn c') { program = newP, globalNames = vn:globalNames c' }
 
 newLabel :: Compiler -> Compiler
 newLabel c = c { functionLabelCount = functionLabelCount c + 1 }
@@ -144,17 +155,18 @@ gCompile a = foldr gDefinition (initCompiler a) a
 
 gDefinition :: BDefinition -> Compiler -> Compiler
 gDefinition (FDefinition name args block) = gFunction name args block
+gDefinition (GlobalVar n mc ivals) = id
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
-gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', functionNames = functionNames c' }
-    where c' = foldl' (flip $ declareVarAuto . (, Nothing)) c args
+gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', globalNames = globalNames c'}
+    where c' = foldr (declareVarAuto . (, Nothing)) c args
                & \x -> gStatement x block
 
           newFunc = Function (name bname)
                     (nameLoc bname)
                     (functionBody c')
                     (fromIntegral $ length args)
-                    (fromIntegral $ cAutoVarCountMax c' - 1)
+                    (fromIntegral $ cAutoVarCountMax c')
 
           newestProgram = let newProgram = program c' in newProgram { functions = newFunc:functions newProgram }
 
@@ -227,7 +239,7 @@ gAssignment c lValue (BinaryAssign bop) rValue = (lArg, c''')
 
 gLValue :: Compiler -> BLValue -> (Arg, Compiler)
 gLValue c l = case l of
-                LName n -> let vf = find (\b->name n==name b) (functionNames c) in if isJust vf then (External (name n), c) else
+                LName n -> let vf = find (\b->name n==name b) (globalNames c) in if isJust vf then (External (name n), c) else
                            let v = findVar (name n) c in if isJust v
                                                          then (case varStorage (fromJust v) of
                                                                  StorageExternal s -> External s

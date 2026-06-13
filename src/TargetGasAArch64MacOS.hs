@@ -4,10 +4,12 @@ import Generator
 import BParser (BBinary(..))
 import Data.Word
 import Data.List
+import Data.Maybe
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
         concatMap aFunction (functions p) ++ "\n" ++
+        aGlobalVarSection (globalVars p) ++ "\n" ++
         aDataSection (staticData p)
 
 aProgramPrologue :: String
@@ -16,6 +18,29 @@ aProgramPrologue = ".text"
 aDataSection :: [Word8] -> String
 aDataSection a = ".data\n.dat: .byte " ++ intercalate "," (map show a)
 
+aGlobalVarSection :: [(String, Maybe Int, [Arg])] -> String
+aGlobalVarSection = concatMap (\(s, ms, args) ->
+                                     if isNothing ms
+                                     then aGlobalVar s args
+                                     else aGlobalVector s (fromJust ms) args
+                                )
+
+aGlobalVar :: String -> [Arg] -> String
+aGlobalVar vName initData = ".data\n" ++
+                            ".global _" ++ vName ++ "\n" ++
+                            ".p2align 3 // investigate why this is needed\n"++
+                            "_" ++ vName ++ ":\n" ++
+                            if null initData then ".quad 0"
+                            else concatMap (\a -> ".quad " ++ (aGlobalVarArg a) ++ "\n") initData
+
+aGlobalVector :: String -> Int -> [Arg] -> String
+aGlobalVector vName vSize initData = undefined
+
+aGlobalVarArg :: Arg -> String
+aGlobalVarArg (External a)   = "_" ++ a
+aGlobalVarArg (Literal a)    = show a
+aGlobalVarArg (DataOffset a) = ".dat +" ++ show a
+                                     ;
 aFunction :: Function -> String
 aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
               concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
@@ -23,7 +48,7 @@ aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ 
 
 aFunctionPrologue :: String -> Word -> Word -> String
 aFunctionPrologue name countParam countAutoVars = "\n.global _" ++ name ++ "\n" ++
-                                                  ".align 4\n" ++
+                                                  ".p2align 4\n" ++
                                                   "_" ++ name ++ ":\n" ++
                                                   "STP LR, FP, [SP, #-16]!\n" ++
                                                   "SUB SP, SP, #" ++ show stackOffset ++ "\n" ++
@@ -64,8 +89,11 @@ aOp funName countParam countAutoVars o = case o of
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 loc
           MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 ptrLoc
-          ExternalAssign loc arg -> undefined
-          Index dest ptsArg offsetArg -> aBinary Add dest ptsArg offsetArg -- Not sure if arrays in b are word index or byte indexed
+          ExternalAssign loc arg -> aArg 0 arg ++
+                                    "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
+                                    "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
+                                    "STR X0, [X1, #0]\n"
+          Index dest ptsArg offsetArg -> aBinary Add dest ptsArg offsetArg -- TODO: Arrays are word indexed, multiply word size
           Label labelN -> funName ++ show labelN ++ ":"
           JmpLabel labelN -> "B " ++ funName ++ show labelN
           JmpIfZeroLabel labelN arg -> aArg 0 arg ++ 
@@ -86,7 +114,8 @@ aArg reg arg = case arg of
              AutoVar autoVarOffset -> loadVarInStack reg autoVarOffset
              Deref autoVarOffset -> loadVarInMem reg autoVarOffset
              External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
-                              "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n"
+                              "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n" ++
+                              "LDR X" ++ show reg ++ ", [X" ++ show reg ++ "]\n"
 
 aBinary :: BinOp -> Word -> Arg -> Arg -> String
 aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
@@ -110,7 +139,6 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                       Modulo          -> "SDIV X0, X1, X2\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
                                                          "MSUB X0, X0, X2, X1\n"  -- which is q then we do (q*b -a) which is mod
                                       Or              -> "ORR X0, X1, X2\n"
+                                      Divide          -> "SDIV X0, X1, X2\n" --
                                     ) ++
                                     storeVarOnStack 0 resultLoc
-
--- TODO: make arrays of words instead of bytes

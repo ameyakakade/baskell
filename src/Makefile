@@ -4,8 +4,8 @@ as: as.o write.o
 as.o: as.s
 	as -arch arm64 -o as.o as.s
 
-as.s: Main ../examples/fib.b
-	./Main ../examples/fib.b
+as.s: Main ../examples/mandelbrot.b
+	./Main ../examples/mandelbrot.b
 
 Main: *.hs
 	ghc Main.hs

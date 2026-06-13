@@ -11,7 +11,7 @@ import Control.Applicative
 type BProgram = [BDefinition]
 
 data BDefinition = FDefinition {fName :: BName, fArgs :: [BName], fStatement :: BStatement}
-                 | GlobalVar BName (Maybe BConstant)
+                 | GlobalVar {vName :: BName, vSize :: Maybe Int, vInit :: [BIVal]}
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -191,8 +191,8 @@ pratter :: Int -> Parser BRValue
 pratter minBP = bws *> (FunctionCall <$> bSingleRValue <*>
                         finiteSelectBracketed '(' ')'
                         (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
-                       <|> bSingleRValue
-                       ) <* bws >>= loop
+                       <|> bSingleRValue --TODO: Do not split by commas inside () in arguments
+                       ) <* bws >>= loop -- Ex: fn(fx(a,b)) should be parsed correctly
     where loop lhs = Parser
                      $ \(c,i) ->
                          if null i
@@ -274,13 +274,19 @@ bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':
            <|> newErr "Could not parse expression." (pratter 0)
 
 bLValue :: Parser BLValue
-bLValue = fmap Array bRValueSingleLValue <*> finiteSelectBracketed '[' ']' bRValue
+bLValue = ( do
+            initRV <- bRValueSingleLValue
+            tailRVs <- tryingRepeatedParser (finiteSelectBracketed '[' ']' bRValue)
+            if null tailRVs then empty
+            else return $ let (rv:rvs) = tailRVs in foldl' (\(Array ptr offset) newOffset -> Array (RLValue $ Array ptr offset) newOffset) (Array initRV rv) rvs
+          )
           <|> bSingleLValue
 
 bSingleRValue :: Parser BRValue
-bSingleRValue = RUnary <$> bUnary <*> bSingleRValueNoUnary
-                <|> IncDecPost <$> bSingleLValue <*> bIncDec
-                <|> IncDecPre <$> bIncDec <*> bSingleLValue
+bSingleRValue = RUnary <$> bUnary <*> bSingleRValue
+                <|> IncDecPost <$> bLValue <*> bIncDec
+                <|> IncDecPre <$> bIncDec <*> bLValue
+                <|> GetAddress <$> (charP '&' *> bLValue)
                 <|> bSingleRValueNoUnary
 
 bSingleRValueNoUnary :: Parser BRValue
@@ -333,8 +339,12 @@ bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
                (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> bStatement)
-              <|> fmap GlobalVar (bName <* bws) <*> (Just <$> bConstant <* charP ';')
-              <|> fmap GlobalVar (bName <* bws) <*> (charP ';' $> Nothing)
+              <|> fmap GlobalVar (bName <* bws) <*>                                                                    -- parsing the name
+                      ((charP '[' *> bws *>((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']') <|> bws $> Nothing) <* bws<*>     -- parsing maybe constant
+                      ((:) <$> bIVal <*> tryingRepeatedParser (charP ',' *> bws *> bIVal) <|> return []) <* charP ';'-- parsing ivals
 
 bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
+
+--TODO: Using ** inside string literals doesnt work as rvalue;
+--TODO: String literals are not indexed properly.

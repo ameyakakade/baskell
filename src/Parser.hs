@@ -89,6 +89,18 @@ repeatedParser parser = Parser $ \(c,i) -> if i/=[]
                                                return (b:bs, restIn')
                                              else return ([], (c,i))
 
+tryingRepeatedParser :: Parser a -> Parser [a]
+tryingRepeatedParser parser = Parser $ \(c,i) -> if i/=[]
+                                             then do
+                                               let r = runParser parser (c,i)
+                                               if isRight r
+                                               then do
+                                                 let Right (b, restIn) = r
+                                                 (bs, restIn') <- runParser (tryingRepeatedParser parser) restIn
+                                                 return (b:bs, restIn')
+                                               else return ([], (c,i))
+                                             else return ([], (c,i))
+
 -- make sure the string parser doesn't change the start of the input
 -- this will lead to incorrect error reporting
 (>>>) :: Parser String -> Parser b -> Parser b
