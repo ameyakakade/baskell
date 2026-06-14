@@ -31,7 +31,7 @@ aGlobalVar vName initData = ".data\n" ++
                             ".p2align 3 // investigate why this is needed\n"++
                             "_" ++ vName ++ ":\n" ++
                             if null initData then ".quad 0"
-                            else concatMap (\a -> ".quad " ++ (aGlobalVarArg a) ++ "\n") initData
+                            else concatMap (\a -> ".quad " ++ aGlobalVarArg a ++ "\n") initData
 
 aGlobalVector :: String -> Int -> [Arg] -> String
 aGlobalVector vName vSize initData = undefined

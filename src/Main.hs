@@ -7,12 +7,16 @@ import TargetGasAArch64MacOS
 
 import Control.Monad
 import System.Environment
+import System.Process
 import Data.Maybe
 
 main :: IO ()
 main = do
   (fileName:_) <- getArgs
   compileFile False fileName
+  fmap show (readProcessWithExitCode "/Users/ameya/.ghcup/bin/ghc" ["Main.hs"] "") >>= putStrLn
+  fmap show (readProcessWithExitCode "/usr/bin/as" ["-arch", "arm64", "-o", "as.o", "as.s"] "") >>= putStrLn
+  fmap show (readProcessWithExitCode "/usr/bin/clang" ["write.o", "as.o"] "") >>= putStrLn
 
 compileFile :: Bool -> String -> IO ()
 compileFile dumpInfo fileName = do
