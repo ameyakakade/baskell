@@ -79,7 +79,7 @@ storeVarInMem reg ptrOffset = loadVarInStack (reg+1) ptrOffset ++
 loadVarInMem :: Word -> Word -> String
 loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
                                  "LDR X0, [X" ++ show destReg ++ ", #0]\n"
-                                 ++ "\n; loading variable in memory"
+                                 ++ "\n; loading variable in memory\n"
 
 aOp :: String -> Word -> Word -> Op -> String
 aOp funName countParam countAutoVars o = case o of
@@ -93,7 +93,11 @@ aOp funName countParam countAutoVars o = case o of
                                     "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
                                     "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
                                     "STR X0, [X1, #0]\n"
-          Index dest ptsArg offsetArg -> aBinary Add dest ptsArg offsetArg -- TODO: Arrays are word indexed, multiply word size
+          Index dest ptsArg offsetArg -> aArg 1 ptsArg ++ aArg 2 offsetArg ++
+                                         "MOV X3, #8\n" ++
+                                         "MUL X2, X2, X3\n" ++
+                                         "ADD X0, X1, X2\n" ++
+                                         storeVarOnStack 0 dest
           Label labelN -> funName ++ show labelN ++ ":"
           JmpLabel labelN -> "B " ++ funName ++ show labelN
           JmpIfZeroLabel labelN arg -> aArg 0 arg ++ 

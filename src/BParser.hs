@@ -150,18 +150,21 @@ escapedStringP predicate = Parser f
                        '*' -> Just '*'
                        a   -> Nothing
 
-safeSpanP :: (Char -> Bool) -> Parser String
-safeSpanP p = Parser $ \(c,i) -> if i/=[]
-                                             then
-                                                 let b = runParser (sp <|> fmap (:[]) (predicateP p "Error in safeSpanP")) (c,i)
-                                                 in if isRight b
-                                                 then do
-                                                   let Right (ob, restIn) = b
-                                                   (bs, restIn') <- runParser (safeSpanP p) restIn
-                                                   return (ob++bs, restIn')
-                                                 else return ([], (c,i))
-                                      else return ([], (c,i))
+safeSpanP' :: Bool -> (Char -> Bool) -> Parser String
+safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=[]
+                                              then
+                                                  let b = runParser (sp <|> pp <|> fmap (:[]) (predicateP p "Error in safeSpanP")) (c,i)
+                                                  in if isRight b
+                                                     then do
+                                                       let Right (ob, restIn) = b
+                                                       (bs, restIn') <- runParser (safeSpanP' safeBrackets p) restIn
+                                                       return (ob++bs, restIn')
+                                                     else return ([], (c,i))
+                                              else return ([], (c,i))
     where sp = (\x y z -> [x]++y++[z]) <$> charP '"' <*> escapedStringP (/='"') <*> charP '"'
+          pp = if safeBrackets then selectBracketed '(' ')' 0 else empty
+
+safeSpanP = safeSpanP' False
 
 -- this function selects a string surrounded by brackets.
 -- it even works for nested brackets
@@ -190,9 +193,9 @@ finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (ch
 pratter :: Int -> Parser BRValue
 pratter minBP = bws *> (FunctionCall <$> bSingleRValue <*>
                         finiteSelectBracketed '(' ')'
-                        (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP (/=',') >>> bRValue) <* ws))
-                       <|> bSingleRValue --TODO: Do not split by commas inside () in arguments
-                       ) <* bws >>= loop -- Ex: fn(fx(a,b)) should be parsed correctly
+                        (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP' True (/=',') >>> bRValue) <* ws))
+                       <|> bSingleRValue
+                       ) <* bws >>= loop
     where loop lhs = Parser
                      $ \(c,i) ->
                          if null i
@@ -263,7 +266,7 @@ bName = Parser $ \(loc, i) -> do
           return (BName r loc, restIn)
 
 bRValue :: Parser BRValue
-bRValue = (ignoreErrorIndex ((,,) <$> spanP (/='?') <* charP '?' <*> spanP (/=':') <* charP ':' <*> spanP (const True)) >>=
+bRValue = (ignoreErrorIndex ((,,) <$> safeSpanP (/='?') <* charP '?' <*> safeSpanP (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
            \(c,l,r) -> Parser $ \input -> do
                        (ce, _) <- startParser (bws *> bRValue) c
                        (le, _) <- startParser (bws *> bRValue) l
@@ -347,4 +350,4 @@ bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
 
 --TODO: Using ** inside string literals doesnt work as rvalue;
---TODO: String literals are not indexed properly.
+--TODO: Investigate if string literals are indexed properly.

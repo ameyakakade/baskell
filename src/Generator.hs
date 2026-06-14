@@ -159,7 +159,7 @@ gDefinition (GlobalVar n mc ivals) = id
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
 gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', globalNames = globalNames c'}
-    where c' = foldr (declareVarAuto . (, Nothing)) c args
+    where c' = foldl' (flip $ declareVarAuto . (, Nothing)) c args
                & \x -> gStatement x block
 
           newFunc = Function (name bname)
