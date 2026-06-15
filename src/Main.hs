@@ -34,10 +34,12 @@ main = do
   cdir <- getCurrentDirectory
   setCurrentDirectory compilerDir
 
-  nC <- runIfChanged False (["Main.hs", "Parser.hs", "BParser.hs", "Generator.hs", "TargetGasAArch64MacOS.hs"]) "baskell"
-        (prettyProcess $ readProcessWithExitCode "/Users/ameya/.ghcup/bin/ghc" ["-o", "baskell", "Main.hs"] "")
+  runIfChanged False (["Main.hs", "Parser.hs", "BParser.hs", "Generator.hs", "TargetGasAArch64MacOS.hs"]) "baskell"
+       (prettyProcess $ readProcessWithExitCode "/Users/ameya/.ghcup/bin/ghc" ["-o", "baskell", "Main.hs"] "")
 
   let std = compilerDir ++ "write.o"
+
+  let nC = False
 
   if null args then putStrLn "No input files."
   else do
