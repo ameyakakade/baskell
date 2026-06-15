@@ -44,7 +44,8 @@ main = do
 
   let nC = isJust $ find (=="-B") args
   let sourceFiles = filter (isSuffixOf ".b") args
-  objectFiles <- traverse makeAbsolute $ filter (isSuffixOf ".o") args
+  objectFiles <- traverse makeAbsolute $ filter (\x -> isSuffixOf ".o" x || isSuffixOf ".a" x) args
+  let linkerFlags = drop 1 $ dropWhile (/="-L") args
 
   if null args then putStrLn "No input files."
   else if newC
@@ -68,7 +69,7 @@ main = do
 
          runIfChanged nC (objectFiles ++ (std:map (getFileName ".o") sourceFiles))
             (takeWhile (/='.') fileName)
-            (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') fileName, std] ++ map (getFileName ".o") sourceFiles ++ objectFiles) "")
+            (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') fileName, std] ++ map (getFileName ".o") sourceFiles ++ objectFiles ++ linkerFlags) "")
          return ()
 
 prettyProcess :: Show a => IO (a, String, String) -> IO ()
