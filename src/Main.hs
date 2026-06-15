@@ -11,16 +11,17 @@ import System.Process
 import System.Directory
 import Data.Maybe
 import Data.List
+import Data.Foldable
 import Data.Time.Clock
 
 bd = ".baskellbuild/"
 
 getFileName :: String -> FilePath -> FilePath
-getFileName ext fp = bd ++ (fst $ span (/='.') fp) ++ ext
+getFileName ext fp = bd ++ takeWhile (/='.') fp ++ ext
 
 setDir :: FilePath -> IO FilePath
 setDir fileP = do
-  let (fn, dir) = span (/='/') $ reverse $ fileP
+  let (fn, dir) = span (/='/') $ reverse fileP
   if null dir
   then setCurrentDirectory "."
   else setCurrentDirectory (reverse dir)
@@ -34,47 +35,56 @@ main = do
   cdir <- getCurrentDirectory
   setCurrentDirectory compilerDir
 
-  runIfChanged False (["Main.hs", "Parser.hs", "BParser.hs", "Generator.hs", "TargetGasAArch64MacOS.hs"]) "baskell"
-       (prettyProcess $ readProcessWithExitCode "/Users/ameya/.ghcup/bin/ghc" ["-o", "baskell", "Main.hs"] "")
+  newC <- runIfChanged False ["Main.hs", "Parser.hs", "BParser.hs", "Generator.hs", "TargetGasAArch64MacOS.hs"] "baskell"
+          (prettyProcess $ readProcessWithExitCode "/Users/ameya/.ghcup/bin/ghc" ["-o", "baskell", "Main.hs"] "")
+
+  setCurrentDirectory cdir
 
   let std = compilerDir ++ "write.o"
 
-  let nC = False
+  let nC = isJust $ find (=="-B") args
+  let sourceFiles = filter (isSuffixOf ".b") args
+  objectFiles <- traverse makeAbsolute $ filter (isSuffixOf ".o") args
 
   if null args then putStrLn "No input files."
-  else do
-    setCurrentDirectory cdir
-    let (fileDirName:_) = args
-    (fileName) <- setDir fileDirName
-    createDirectoryIfMissing False bd
+  else if newC
+       then do
+         putStrLn "Possibly updated compiler. Use flag -B to rebuild everything"
+       else do
+         let (fileDirName:_) = sourceFiles
+         fileName <- setDir fileDirName
+         createDirectoryIfMissing False bd
 
-    runIfChanged nC [fileName]
-       (getFileName ".as" fileName)
-       (compileFile False fileName)
+         traverse_ (\fileName -> do
+                    runIfChanged nC [fileName]
+                                     (getFileName ".as" fileName)
+                                     (compileFile False fileName)
 
-    runIfChanged nC [(getFileName ".as" fileName)]
-       (getFileName ".o" fileName)
-       (prettyProcess $ readProcessWithExitCode "/usr/bin/as" ["-arch", "arm64", "-o", (getFileName ".o" fileName), (getFileName ".as" fileName)] "")
+                    runIfChanged nC [getFileName ".as" fileName]
+                                     (getFileName ".o" fileName)
+                                     (prettyProcess $ readProcessWithExitCode "as"
+                                                        ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".as" fileName] "")
+                  ) sourceFiles
 
-    runIfChanged nC [std, (getFileName ".o" fileName)]
-       (fst $ span (/='.') fileName)
-       (prettyProcess $ readProcessWithExitCode "/usr/bin/clang" ["-o", (fst $ span (/='.') fileName), std, (getFileName ".o" fileName)] "")
-    return ()
+         runIfChanged nC (objectFiles ++ (std:map (getFileName ".o") sourceFiles))
+            (takeWhile (/='.') fileName)
+            (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') fileName, std] ++ map (getFileName ".o") sourceFiles ++ objectFiles) "")
+         return ()
 
 prettyProcess :: Show a => IO (a, String, String) -> IO ()
 prettyProcess p = do
   (exit, stdin, stderr) <- p
-  putStrLn $ show exit
+  print exit
   putStr stdin
   putStr stderr
 
-runIfChanged :: Show a => Bool -> [FilePath] -> FilePath -> (IO a) -> IO Bool
+runIfChanged :: Show a => Bool -> [FilePath] -> FilePath -> IO a -> IO Bool
 runIfChanged force fp out ting = do
   t <- getCurrentTime
   cs <- traverse (checkChange out) fp 
-  if (any id cs) || force
+  if or cs || force
   then do
-    putStrLn $ "Making " ++ out ++ " from " ++ (concat $ intersperse ", " fp)
+    putStrLn $ "Making " ++ out ++ " from " ++ intercalate ", " fp
     ting
     putStrLn ""
     return True
@@ -88,8 +98,8 @@ checkChange out fp = do
   if fileExists
   then do
     outT <- getModificationTime out
-    let d = realToFrac $ diffUTCTime inT outT
-    return $ if d > 0 then True else False
+    let d = diffUTCTime inT outT
+    return $ d > 0
   else return True
 
 compileFile :: Bool -> String -> IO ()
@@ -121,7 +131,7 @@ compileFile dumpInfo fileName = do
                        (fst irp)
             putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
             putStrLn ""
-                     
+
           when dumpInfo (do
                 putStrLn "\nASM:"
                 putStrLn asmo)
