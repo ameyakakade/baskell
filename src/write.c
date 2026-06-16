@@ -10,7 +10,7 @@ void write(char* str, int len)
 
 void printword(size_t n)
 {
-    printf("%u", n);
+    printf("%zd", n);
 }
 
 void putstr(char* nullTerminatedStr)

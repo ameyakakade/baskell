@@ -2,10 +2,11 @@
    to find out factorial of number */
 main()
 {
-    extrn printword,exit;
+    extrn printword, exit, putchar;
     auto a;
-    a=factorial(5);
+    a=factorial(3);
     printword(a);
+    putchar('*n');
     exit(0);
 }
 factorial(i)
@@ -19,3 +20,4 @@ factorial(i)
         return 1;
     }
 }
+/*  */

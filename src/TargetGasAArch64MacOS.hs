@@ -106,6 +106,13 @@ aOp funName countParam countAutoVars o = case o of
           Return Nothing -> aFunctionEpilogue countParam countAutoVars
           Return (Just arg) -> aArg 0 arg ++
                                aFunctionEpilogue countParam countAutoVars
+          UnaryNot dest arg -> aArg 0 arg ++
+                               "CMP X0, #0\n" ++
+                               "CSET X0, EQ\n" ++
+                               storeVarOnStack 0 dest
+          Negate dest arg -> aArg 0 arg ++
+                             "NEG X0, X0\n" ++
+                             storeVarOnStack 0 dest
     where fl (External s) = "BL _" ++ s
           fl a = aArg 16 a ++ "\n" ++ "BLR X16"
 

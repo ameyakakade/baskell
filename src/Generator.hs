@@ -211,6 +211,7 @@ gRValue c rvalue = case rvalue of
                      BracketRValue rv     -> gRValue c rv
                      IncDecPost l op      -> gIncDec l op True c
                      IncDecPre  op l      -> gIncDec l op False c
+                     RUnary op r          -> gUnary op r c
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
 gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
@@ -268,6 +269,15 @@ gBinary l op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 
           (rArg, c'') = gRValue c' r
           resultAutoVar = cAutoVarCount c''
           newOp = OpBin op resultAutoVar lArg rArg
+
+gUnary :: BUnary -> BRValue -> Compiler -> (Arg, Compiler)
+gUnary op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 c')
+    where (rArg, c') = gRValue c r
+          resultAutoVar = cAutoVarCount c'
+          newOp = (case op of
+                     Not -> UnaryNot
+                     Negative -> Negate
+                  ) resultAutoVar rArg
 
 gIncDec :: BLValue -> BIncDec -> Bool -> Compiler -> (Arg, Compiler)
 gIncDec l op post c = if post
