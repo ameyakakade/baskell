@@ -129,16 +129,16 @@ escapedStringP predicate = Parser f
   where
     f (c, []) = Right ([], (c, []))
     f (c, x:xs)
-      | x=='*' = let (a:as) = xs
-                     a' = escapedChars a
-                 in if isNothing a'
-                    then Left (["Invalid escape char"] ,(c, xs))
-                    else let b = f (c, as)
-                         in if isRight b
-                            then let Right (ys, (c', zs)) = b
-                                     c'' = c'+2
-                                 in Right (fromJust a':ys, (c'', zs))
-                            else b
+      | (x=='*') = let (a:as) = xs
+                       a' = escapedChars a
+                   in if isNothing a'
+                      then Left (["Invalid escape char"] ,(c, xs))
+                      else let b = f (c, as)
+                           in if isRight b
+                              then let Right (ys, (c', zs)) = b
+                                       c'' = c'+2
+                                   in Right (fromJust a':ys, (c'', zs))
+                              else b
       | predicate x = let a = f (c, xs)
                       in if isRight a
                          then let Right (ys, (c', zs)) = a
@@ -151,7 +151,7 @@ escapedStringP predicate = Parser f
                        'n' -> Just '\n'
                        '"' -> Just '\"'
                        '*' -> Just '*'
-                       a   -> Nothing
+                       a   -> Just a
 
 safeSpanP' :: Bool -> (Char -> Bool) -> Parser String
 safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=[]
@@ -257,7 +257,8 @@ bConstant = newErr "Invalid constant" $ spanP isAlphaNum >>> parseNumConstant
                                            (a, restIn) <- runParser (escapedStringP (/='\'')) input
                                            if length a == 1
                                            then let [a1]=a in return (a1, restIn)
-                                           else Left (["Expected only one character"], restIn)
+                                           -- else Left (["Expected only one character"], restIn)
+                                           else return (head a, restIn)
                                         ) <* charP '\'')
             <|> fmap Chars (charP '"' *> escapedStringP (/='"') <* charP '"')
 
@@ -268,7 +269,7 @@ parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
                                          (fmap (:) (predicateP binaryChars "Expected valid binary constant.") <*> spanP binaryChars))
                    <|> fmap OctalConst (charP '0' *>
                                         (fmap (:) (predicateP octalChars "Expected valid octal constant.") <*> spanP octalChars))
-                   <|> fmap (Digit . read) (fmap (:) (predicateP (\x -> any ($ x) (map (==) "123456789")) "Unreachable") <*> spanP isDigit)
+                   <|> fmap (Digit . read) digitParser
     where digitParser = fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit
           hexChars x = any ($ x) (map (==) "0123456789ABCDEF")
           binaryChars x = any ($ x) (map (==) "01")
@@ -290,7 +291,7 @@ bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP (/='?') <* charP '?' <*>
                                (re, _) <- startParser (bws *> bRValueStrict) r
                                return (Ternary ce le re, input)
                  )
-                 <|> Assignment <$> (safeSpanP (/='=') >>> (bLValue <* ws)) <*> (bAssign <* ws) <*> bRValueStrict
+                 <|> Assignment <$> (safeSpanP (/='=') >>> (bLValue <* ws)) <*> (bAssign <* ws) <*> bRValue
                  <|> newErr "Could not parse expression." (pratter trying 0)
 
 bLValue :: Parser BLValue
@@ -332,7 +333,7 @@ bRValueOnly = fmap RConstant bConstant
 
 bStatement :: Parser BStatement
 bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (bws *> bStatement <* bws)))
-             <|> fmap While (stringP "while" *> bws *> (charP '(' *> bRValue <* charP ')')) <*> bStatement
+             <|> fmap While (stringP "while" *> bws *> (charP '(' *> bRValue <* charP ')')) <* bws <*> bStatement
              <|> fmap Goto (keywordParser "goto" *>
                             newErr "Expected a RValue" (selSt >>> bRValue))
              <|> fmap Extrn (keywordParser "extrn" *>
@@ -373,3 +374,4 @@ bProgram = repeatedParser (bws *> bDefinition <* bws)
 
 --TODO: Using ** inside string literals doesnt work as rvalue;
 --TODO: Investigate if string literals are indexed properly.
+--TODO: Multiple comments in a row cause errors
