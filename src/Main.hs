@@ -147,7 +147,7 @@ compileFile dumpInfo fileName = do
                 putStrLn "Syntax error"
                 putStr $ fileName ++ ":"
                 putStrLn $ findLoc newLines loc
-                putStrLn error
+                putStr error
 
 findLoc :: [Int] -> Int -> String
 findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"

@@ -7,9 +7,9 @@
 There are no third-party dependencies except Base (Haskell standard library).
 
 ### Parser
-This compiler uses parser combinators. They are great for the most part unless you are dealing 
-with "right recursive grammars". The parsers are heavily inspired by this video: https://www.youtube.com/watch?v=N9RUqGYuGfw.
-There is acceptable reporting of syntax errors.
+This compiler uses parser combinators. There is no tokenizer, which has increased complexity and decreased usefulness 
+of error messages. Dealing with "right recursive grammars" is espically painful. The parsers are heavily inspired by this 
+video: https://www.youtube.com/watch?v=N9RUqGYuGfw. There is usable reporting of syntax errors.
 
 ### Generator
 The generator converts AST into intermediate representation. I used a "precedence parser" so the binary operators are nested 

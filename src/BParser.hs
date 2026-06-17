@@ -176,7 +176,7 @@ safeSpanP = safeSpanP' False
 selectBracketed sI eI n = Parser $ \input -> do
                             let firstChar = runParser (charP sI) input
                             runParser ((if isLeft firstChar
-                                       then newErr "WOWWO"
+                                       then replaceErr st
                                        else failureToError st) $ (selectBracketedE sI eI n)) input
     where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair." 
 
@@ -258,7 +258,7 @@ parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
 
 bName :: Parser BName
 bName = Parser $ \(loc, i) -> do
-          (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected a alphabet.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
+          (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected identifier.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
           return (BName r loc, restIn)
 
 bRValue = bRValue' True
