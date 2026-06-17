@@ -118,7 +118,8 @@ bWhiteSpace skipNewlines = wsf *> stringP "/*" *> findEnd *> wsf
                                   (_, restIn') <- runParser (charP '*') restIn
                                   runParser findEnd restIn'
                                 else do
-                                  let Right (_, restIn'') = a in Right ("", restIn'')
+                                  let Right (_, restIn'') = a
+                                  runParser bws restIn''
             wsf = if skipNewlines then ws else wsnn
 
 bws = bWhiteSpace True
@@ -129,16 +130,16 @@ escapedStringP predicate = Parser f
   where
     f (c, []) = Right ([], (c, []))
     f (c, x:xs)
-      | (x=='*') = let (a:as) = xs
-                       a' = escapedChars a
-                   in if isNothing a'
-                      then Left (["Invalid escape char"] ,(c, xs))
-                      else let b = f (c, as)
-                           in if isRight b
-                              then let Right (ys, (c', zs)) = b
-                                       c'' = c'+2
-                                   in Right (fromJust a':ys, (c'', zs))
-                              else b
+      | x=='*' = let (a:as) = xs
+                     a' = escapedChars a
+                 in if isNothing a'
+                    then Left (Error "Invalid escape char" (c, xs))
+                    else let b = f (c, as)
+                         in if isRight b
+                            then let Right (ys, (c', zs)) = b
+                                     c'' = c'+2
+                                 in Right (fromJust a':ys, (c'', zs))
+                            else b
       | predicate x = let a = f (c, xs)
                       in if isRight a
                          then let Right (ys, (c', zs)) = a
@@ -151,7 +152,7 @@ escapedStringP predicate = Parser f
                        'n' -> Just '\n'
                        '"' -> Just '\"'
                        '*' -> Just '*'
-                       a   -> Just a
+                       a   -> Nothing
 
 safeSpanP' :: Bool -> (Char -> Bool) -> Parser String
 safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=[]
@@ -173,8 +174,11 @@ safeSpanP = safeSpanP' False
 -- it even works for nested brackets
 
 selectBracketed sI eI n = Parser $ \input -> do
-                            let o = runParser (replaceErr ("Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair, possibly mismatched brackets." ) $ selectBracketedE sI eI n) input
-                            if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
+                            let firstChar = runParser (charP sI) input
+                            runParser (if isLeft firstChar
+                                       then empty
+                                       else (id $ ignoreErrorIndex $ selectBracketedE sI eI n)) input
+    where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair." 
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
 selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
@@ -332,7 +336,7 @@ bRValueOnly = fmap RConstant bConstant
               <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
-bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (repeatedParser (bws *> bStatement <* bws)))
+bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "Invalid statement" $ repeatedParser (bws *> bStatement <* bws)))
              <|> fmap While (stringP "while" *> bws *> (charP '(' *> bRValue <* charP ')')) <* bws <*> bStatement
              <|> fmap Goto (keywordParser "goto" *>
                             newErr "Expected a RValue" (selSt >>> bRValue))
@@ -365,7 +369,7 @@ bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
                (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> bStatement)
-              <|> fmap GlobalVar (bName <* bws) <*>                                                                    -- parsing the name
+              <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
                       ((charP '[' *> bws *>((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']') <|> bws $> Nothing) <* bws<*>     -- parsing maybe constant
                       ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal) <|> return []) <* charP ';'-- parsing ivals
 

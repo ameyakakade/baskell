@@ -7,7 +7,11 @@ import Data.Either
 --           loc  input
 type Input = (Int, String)
 
-newtype Parser a = Parser { runParser :: Input -> Either ([String], Input) (a, Input)}
+newtype Parser a = Parser { runParser :: Input -> Either ParserError (a, Input)}
+
+data ParserError = Failure [String] Input
+                 | Error String Input
+                   deriving (Show)
 
 instance Functor Parser where
   fmap f (Parser p) = Parser $ \input -> do
@@ -22,16 +26,18 @@ instance Applicative Parser where
     return (f a, input'')
 
 instance Alternative Parser where
-  empty = Parser $ \input -> Left (["Failed parser."], input)
+  empty = Parser $ \input -> Left (Failure ["Failed parser."] input)
   (Parser p1) <|> (Parser p2) = Parser $ \input -> p1 input <|> p2 input
 
-instance Alternative (Either ([String], Input)) where
-  empty = Left ([], (0,""))
+instance Alternative (Either ParserError) where
+  empty = Left (Failure [] (0,""))
   (Right a) <|> _ = Right a 
-  (Left  a) <|> (Right b) = Right b
-  (Left (e1, (c1, s1))) <|> (Left (e2, (c2, s2))) = if c1 >= c2 -- return the error which parsed the most
-                                                            then Left (e1, (c1, s1))
-                                                            else Left (e2, (c2, s2))
+  (Left  (Failure a e)) <|> (Right b) = Right b
+  (Left (Error e i)) <|> _ = Left (Error e i)
+  _ <|> (Left (Error e i)) = Left (Error e i)
+  (Left (Failure e1 (c1, s1))) <|> (Left (Failure e2 (c2, s2))) = if c1 >= c2 -- return the failure which parsed the most
+                                                            then Left (Failure e1 (c1, s1))
+                                                            else Left (Failure e2 (c2, s2))
 
 instance Monad Parser where
     Parser p >>= f = Parser $ \input -> do
@@ -42,12 +48,20 @@ instance Monad Parser where
 newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = Right a
-        replace (Left (oldErr, a)) = Left (newError:oldErr, a)
+        replace (Left (Failure oldErr a)) = Left (Failure (newError:oldErr) a)
+        replace (Left (Error s i)) = Left (Error s i)
 
 replaceErr :: String -> Parser a -> Parser a
 replaceErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
   where replace (Right a) = Right a
-        replace (Left (oldErr, a)) = Left ([newError], a)
+        replace (Left (Failure oldErr a)) = Left (Failure [newError] a)
+        replace (Left (Error s i)) = Left (Error s i)
+
+failureToError :: String -> Parser a -> Parser a
+failureToError newError (Parser oldP) = Parser $ \input -> replace $ oldP input
+    where replace (Right a) = Right a
+          replace (Left (Failure oldErr a)) = Left (Error (unlines $ newError:oldErr) a)
+          replace (Left (Error oldErr a)) = Left (Error oldErr a)
 
 startParser parser input = runParser parser (0, input)
 
@@ -56,10 +70,10 @@ predicateP p err = Parser f
   where
     f (loc, y:ys)
       | p y = Right (y, (locN, ys))
-      | otherwise = Left ([err], (locN, y:ys))
+      | otherwise = Left (Failure [err] (locN, y:ys))
       where
         locN = loc + 1
-    f (loc, []) = Left ([err ++ ", reached end of input."], (loc, []))
+    f (loc, []) = Left (Failure [err ++ ", reached end of input."] (loc, []))
 
 charP :: Char -> Parser Char
 charP x = predicateP (x ==) ("Expected " ++ show x)
@@ -111,9 +125,10 @@ f >>> g = Parser $ \input -> do
             case a of
               Right (r, (c', i')) -> if null i'
                                          then Right (r, restIn)
-                                         else Left (["Unexpected string, "++i'], (c', i))
-              Left (err, (c', i'))  -> Left (err, (c', i))
+                                         else Left (Failure ["Unexpected string, "++i'] (c', i))
+              Left (Failure err (c', i'))  -> Left (Failure err (c', i))
+              Left (Error s (c', i')) -> Left (Error s (c+c', i))
 
 ignoreErrorIndex p = Parser $ \input -> do
                              let o = runParser p input
-                             if isLeft o then (\(Left (err, (loc, s))) -> Left (err, (fst input, s))) o else o
+                             if isLeft o then (\(Left (Failure err (loc, s))) -> Left (Failure err (fst input, s))) o else o

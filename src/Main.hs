@@ -137,11 +137,17 @@ compileFile dumpInfo fileName = do
                 putStrLn "\nASM:"
                 putStrLn asmo)
 
-    (Left (errors,(loc, s))) -> do
-                putStrLn "Syntax error"
+    (Left (Failure errors (loc, s))) -> do
+                putStrLn "Syntax failure"
                 putStr $ fileName ++ ":"
                 putStrLn $ findLoc newLines loc
                 putStr $ unlines errors
+
+    (Left (Error error (loc, s))) -> do
+                putStrLn "Syntax error"
+                putStr $ fileName ++ ":"
+                putStrLn $ findLoc newLines loc
+                putStrLn error
 
 findLoc :: [Int] -> Int -> String
 findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
