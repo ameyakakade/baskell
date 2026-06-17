@@ -30,11 +30,11 @@ instance Alternative Parser where
   (Parser p1) <|> (Parser p2) = Parser $ \input -> p1 input <|> p2 input
 
 instance Alternative (Either ParserError) where
-  empty = Left (Failure [] (0,""))
+  empty = Left (Failure [] (0,"UNREACHABLE"))
   (Right a) <|> _ = Right a 
   (Left  (Failure a e)) <|> (Right b) = Right b
-  (Left (Error e i)) <|> _ = Left (Error e i)
   _ <|> (Left (Error e i)) = Left (Error e i)
+  (Left (Error e i)) <|> _ = Left (Error e i)
   (Left (Failure e1 (c1, s1))) <|> (Left (Failure e2 (c2, s2))) = if c1 >= c2 -- return the failure which parsed the most
                                                             then Left (Failure e1 (c1, s1))
                                                             else Left (Failure e2 (c2, s2))
@@ -63,6 +63,8 @@ failureToError newError (Parser oldP) = Parser $ \input -> replace $ oldP input
           replace (Left (Failure oldErr a)) = Left (Error (unlines $ newError:oldErr) a)
           replace (Left (Error oldErr a)) = Left (Error oldErr a)
 
+-- NOTE: Be careful when using this to make monadic parsers, you will have to
+--       manage location manually, as this just uses 0 location as default
 startParser parser input = runParser parser (0, input)
 
 predicateP :: (Char -> Bool) -> String -> Parser Char
@@ -127,7 +129,7 @@ f >>> g = Parser $ \input -> do
                                          then Right (r, restIn)
                                          else Left (Failure ["Unexpected string, "++i'] (c', i))
               Left (Failure err (c', i'))  -> Left (Failure err (c', i))
-              Left (Error s (c', i')) -> Left (Error s (c+c', i))
+              Left (Error e (c', i')) -> Left (Error e (c', i))
 
 ignoreErrorIndex p = Parser $ \input -> do
                              let o = runParser p input

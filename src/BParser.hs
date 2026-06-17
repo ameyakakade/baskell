@@ -175,9 +175,9 @@ safeSpanP = safeSpanP' False
 
 selectBracketed sI eI n = Parser $ \input -> do
                             let firstChar = runParser (charP sI) input
-                            runParser (if isLeft firstChar
-                                       then empty
-                                       else (id $ ignoreErrorIndex $ selectBracketedE sI eI n)) input
+                            runParser ((if isLeft firstChar
+                                       then newErr "WOWWO"
+                                       else failureToError st) $ (selectBracketedE sI eI n)) input
     where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair." 
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
@@ -196,29 +196,6 @@ selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
                   else z [b] (n+1)
 
 finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
-
-pratter :: Bool -> Int -> Parser BRValue
-pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>= loop
-    where loop lhs = Parser
-                     $ \(c,i) ->
-                         if null i
-                         then Right (lhs, (c,i))
-                         else do
-                           let input = (c,i)
-                           let bop = runParser (bws *> bBinary) input
-                           if isLeft bop
-                           then if trying
-                                then return (lhs, (c,i))
-                                else let Left a = bop in Left a
-                           else do
-                             let Right (op, restIn) = bop
-                             let (lbp, rbp) = bindingPower op
-                             if lbp<minBP
-                             then Right (lhs, input)
-                             else do
-                               (rhs, restIn') <- runParser (pratter trying rbp) restIn
-                               (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
-                               Right (flhs, restIn'')
 
 bIVal :: Parser BIVal
 bIVal = fmap IConstant bConstant
@@ -256,7 +233,7 @@ bBinary = fmap (const Or) (stringP "|")
           <|> fmap (const Divide) (stringP "/")
 
 bConstant :: Parser BConstant
-bConstant = newErr "Invalid constant" $ spanP isAlphaNum >>> parseNumConstant
+bConstant = parseNumConstant
             <|> fmap CharConst (charP '\'' *> Parser (\input -> do
                                            (a, restIn) <- runParser (escapedStringP (/='\'')) input
                                            if length a == 1
@@ -268,12 +245,12 @@ bConstant = newErr "Invalid constant" $ spanP isAlphaNum >>> parseNumConstant
 
 parseNumConstant :: Parser BConstant
 parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
-                                  (fmap (:) (predicateP hexChars "Expected valid hex constant.") <*> spanP hexChars))
-                   <|> fmap BinaryConst (charP '0' *> (charP 'b' <|> charP 'B') *>
-                                         (fmap (:) (predicateP binaryChars "Expected valid binary constant.") <*> spanP binaryChars))
-                   <|> fmap OctalConst (charP '0' *>
-                                        (fmap (:) (predicateP octalChars "Expected valid octal constant.") <*> spanP octalChars))
-                   <|> fmap (Digit . read) digitParser
+                     (fmap (:) (predicateP hexChars "Expected valid hex constant.") <*> spanP hexChars))
+          <|> fmap BinaryConst (charP '0' *> (charP 'b' <|> charP 'B') *>
+                                (fmap (:) (predicateP binaryChars "Expected valid binary constant.") <*> spanP binaryChars))
+          <|> fmap OctalConst (charP '0' *>
+                               (fmap (:) (predicateP octalChars "Expected valid octal constant.") <*> spanP octalChars))
+          <|> fmap (Digit . read) digitParser
     where digitParser = fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit
           hexChars x = any ($ x) (map (==) "0123456789ABCDEF")
           binaryChars x = any ($ x) (map (==) "01")
@@ -287,15 +264,38 @@ bName = Parser $ \(loc, i) -> do
 bRValue = bRValue' True
 bRValueStrict = bRValue' False
 
+pratter :: Bool -> Int -> Parser BRValue
+pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>= loop
+    where loop lhs = Parser
+                     $ \(c,i) ->
+                         if null i
+                         then Right (lhs, (c,i))
+                         else do
+                           let input = (c,i)
+                           let bop = runParser (bws *> bBinary) input
+                           if isLeft bop
+                           then if trying
+                                then return (lhs, (c,i))
+                                else let Left a = bop in Left a
+                           else do
+                             let Right (op, restIn) = bop
+                             let (lbp, rbp) = bindingPower op
+                             if lbp<minBP
+                             then Right (lhs, input)
+                             else do
+                               (rhs, restIn') <- runParser (pratter trying rbp) restIn
+                               (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
+                               Right (flhs, restIn'')
+
 bRValue' :: Bool -> Parser BRValue
-bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP (/='?') <* charP '?' <*> safeSpanP (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
-                 \(c,l,r) -> Parser $ \input -> do
-                               (ce, _) <- startParser (bws *> bRValueStrict) c
-                               (le, _) <- startParser (bws *> bRValueStrict) l
-                               (re, _) <- startParser (bws *> bRValueStrict) r
-                               return (Ternary ce le re, input)
+bRValue' trying = (ignoreErrorIndex ((,,) <$> (safeSpanP' True) (/='?') <* charP '?' <*> (safeSpanP' True) (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
+                 \(c,l,r) -> Parser $ \(loc, i) -> do
+                               (ce, (loc', _)) <- runParser (bws *> bRValueStrict) (loc, c)
+                               (le, (loc'', _)) <- runParser (bws *> bRValueStrict) (loc', l)
+                               (re, _) <- runParser (bws *> bRValueStrict) (loc'', r)
+                               return (Ternary ce le re, (loc, i))
                  )
-                 <|> Assignment <$> (safeSpanP (/='=') >>> (bLValue <* ws)) <*> (bAssign <* ws) <*> bRValue
+                 <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
                  <|> newErr "Could not parse expression." (pratter trying 0)
 
 bLValue :: Parser BLValue
@@ -339,24 +339,24 @@ bStatement :: Parser BStatement
 bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "Invalid statement" $ repeatedParser (bws *> bStatement <* bws)))
              <|> fmap While (stringP "while" *> bws *> (charP '(' *> bRValue <* charP ')')) <* bws <*> bStatement
              <|> fmap Goto (keywordParser "goto" *>
-                            newErr "Expected a RValue" (selSt >>> bRValue))
+                            newErr "Expected a RValue" (selSt bRValue))
              <|> fmap Extrn (keywordParser "extrn" *>
-                             newErr "Expected a name." (selSt >>> ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
+                             newErr "Expected a name." (selSt ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
              <|> fmap Auto (keywordParser "auto" *>
-                            newErr "Expected a name." (selSt >>> (let f = (,) <$> (bName <* bws) <*> parseNum
+                            newErr "Expected a name." (selSt (let f = (,) <$> (bName <* bws) <*> parseNum
                                                                   in (:) <$> (f <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> f)) ))
              <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
                  bStatement <*> (Just <$> (bws *> stringP "else" *> bws *> bStatement))
              <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
                  bStatement <*> return Nothing
              <|> fmap BReturn ((stringP "return" *> bws *> charP ';') $> Nothing)
-             <|> fmap BReturn (keywordParser "return" *> (selSt >>> fmap Just bRValue))
+             <|> fmap BReturn (keywordParser "return" *> (selSt $ fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
              <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
-             <|> fmap SRValue (selSt >>> bRValueStrict)
+             <|> fmap SRValue (selSt bRValueStrict)
 
-    where selSt = safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';'
+    where selSt p = (safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';') >>> failureToError "Could not parse statement." p
           keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
           keywordSpacer i = Parser $ \input -> do
                             runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
