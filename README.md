@@ -26,3 +26,5 @@ function "compileFile" from repl or provide filename to executable of a valid(an
 should work with non variadic libc functions.)
 
 Orignal reference manual for B: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/kbman.html
+
+No AI was used to write this project.
