@@ -11,5 +11,5 @@ add __asm__(
 
 main() {
     extrn printf;
-    printf("%d\n", add(34, 35));
+    printf("%d*n", add(34, 35));
 }

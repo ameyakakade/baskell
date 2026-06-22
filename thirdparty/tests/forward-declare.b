@@ -1,7 +1,7 @@
 main() {
     extrn foo, bar, foo_msg, bar_msg;
-    foo_msg = "Foo\n";
-    bar_msg = "Bar\n";
+    foo_msg = "Foo*n";
+    bar_msg = "Bar*n";
     foo();
     bar();
 }

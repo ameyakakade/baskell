@@ -9,5 +9,5 @@ add(a, b) {
 main() {
     extrn printf;
     nop();
-    printf("%d\n", add(34, 35));
+    printf("%d*n", add(34, 35));
 }

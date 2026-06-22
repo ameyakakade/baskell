@@ -1,7 +1,7 @@
 test(n) {
 	extrn printf;
 	printf(
-		"%d:\t%s\n", n,
+		"%d:\t%s*n", n,
 		n == 69 ? "69" :
 		n == 420 ? "420" :
 		n < 69 ? "..69" :

@@ -14,7 +14,7 @@ main() {
     arr[1][0]++;
     --arr[1][1];
 
-    printf("%d  %d\n%d %d\n",
+    printf("%d  %d*n%d %d*n",
            arr[0][0],
            arr[0][1],
            arr[1][0],

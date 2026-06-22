@@ -3,7 +3,7 @@ main() {
     extrn char, printf, malloc, strlen, lchar, toupper;
     auto s, q, i, n;
     s = "hello, world";
-    printf("lower: %s\n", s);
+    printf("lower: %s*n", s);
     n = strlen(s);
     q = malloc(n + 1);
     i = 0; while (i < n) {
@@ -11,5 +11,5 @@ main() {
         i++;
     }
     lchar(q, n, 0);
-    printf("UPPER: %s\n", q);
+    printf("UPPER: %s*n", q);
 }

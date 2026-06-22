@@ -6,7 +6,7 @@ main() {
     x = 9223372036854775808;
     y = 0x8000000000000000;
     z = 01000000000000000000000;
-    printf("x = %llX\n", x);
-    printf("y = %llX\n", y);
-    printf("z = %llX\n", z);
+    printf("x = %llX*n", x);
+    printf("y = %llX*n", y);
+    printf("z = %llX*n", z);
 }

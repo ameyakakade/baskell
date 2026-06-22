@@ -4,8 +4,8 @@ main() {
     x = execvp("executable_that_does_not_exist", 0);
     x = sx64(x);
     if (x < 0) {
-        printf("OK\n");
+        printf("OK*n");
     } else {
-        printf("FAILURE\n");
+        printf("FAILURE*n");
     }
 }

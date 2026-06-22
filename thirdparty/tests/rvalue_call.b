@@ -1,16 +1,16 @@
 foo() {
     extrn printf;
-    printf("Foo\n");
+    printf("Foo*n");
 }
 
 bar() {
     extrn printf;
-    printf("Bar\n");
+    printf("Bar*n");
 }
 
 baz() {
     extrn printf;
-    printf("Baz\n");
+    printf("Baz*n");
 }
 
 main() {

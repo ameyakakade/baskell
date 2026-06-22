@@ -9,11 +9,11 @@ test1() {
 	write(&x, 69);
 	write(&y, 420);
 
-	// printf("&x: %p\n", &x);
-	// printf("&y: %p\n", &y);
+	// printf("&x: %p*n", &x);
+	// printf("&y: %p*n", &y);
 
-	printf("x: %d %d %d %d %d\n", x, *&x, &*x, &*&*&*x, *&*&*&x);
-	printf("y: %d %d %d %d %d\n", y, *&y, &*y, &*&*&*y, *&*&*&y);
+	printf("x: %d %d %d %d %d*n", x, *&x, &*x, &*&*&*x, *&*&*&x);
+	printf("y: %d %d %d %d %d*n", y, *&y, &*y, &*&*&*y, *&*&*&y);
 }
 
 test2() {
@@ -23,7 +23,7 @@ test2() {
 	b = &a;
 	c = &b;
 	d = &c;
-	printf("a: %d\n", ***d);
+	printf("a: %d*n", ***d);
 }
 
 test3() {
@@ -40,7 +40,7 @@ test3() {
 	// therefore `&E1[E2]` should be identical to `E1+E2`
 	// check generated IR to confirm that
 	printf(
-		"xs: [%d, %d]\n",
+		"xs: [%d, %d]*n",
 		read(xs),
 		read(&xs[1])
 	);

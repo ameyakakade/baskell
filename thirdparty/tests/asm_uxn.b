@@ -11,7 +11,7 @@ main() {
     }
     /* asm labels are global and live in a distinct namespace */
     __asm__("jmi main_skip");
-    printf("Should be skipped\n");
+    printf("Should be skipped*n");
     __asm__("main_skip:");
-    putchar('\n');
+    putchar('*n');
 }

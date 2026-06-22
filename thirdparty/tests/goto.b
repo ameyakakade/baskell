@@ -4,7 +4,7 @@ main() {
     i = 0;
 loop:
     if (i < 5) {
-        printf("%d\n", i++);
+        printf("%d*n", i++);
     } else {
         goto end;
     }

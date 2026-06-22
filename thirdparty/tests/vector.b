@@ -9,7 +9,7 @@ test1() {
     xs[3] = 69;
 
     printf(
-        "%d %c %d = %d\n",
+        "%d %c %d = %d*n",
         xs[0],
         xs[1],
         *(xs + 2*W),
@@ -25,7 +25,7 @@ LIST A, B, C;
 test2() {
     extrn printf;
     auto i; i = 0;
-    while (i < COUNT) printf("%s\n", *((&LIST)[i++]) );
+    while (i < COUNT) printf("%s*n", *((&LIST)[i++]) );
 }
 
 N  5 ;
@@ -34,7 +34,7 @@ test3() {
     extrn printf;
     auto i;
     i = 0; while (i < N) V[i] = ++i * 2;
-    i = 0; while (i < N) printf("%d => %d\n", i, V[i++]);
+    i = 0; while (i < N) printf("%d => %d*n", i, V[i++]);
 }
 
 

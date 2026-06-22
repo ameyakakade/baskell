@@ -133,7 +133,7 @@ escapedStringP predicate = Parser f
   where
     f (c, []) = Right ([], (c, []))
     f (c, x:xs)
-      | x=='\\' = let (a:as) = xs
+      | x== '*' = let (a:as) = xs
                       a' = escapedChars a
                   in if isNothing a'
                      then Left (Error "Invalid escape char" (c, xs))
@@ -154,9 +154,8 @@ escapedStringP predicate = Parser f
                        '0' -> Just '\0'
                        'n' -> Just '\n'
                        '"' -> Just '\"'
-                       '\\' -> Just '\\'
+                       '*' -> Just '*'
                        a   -> Nothing
--- WARNING: '\' is used as escape character instead of '*'
 
 safeSpanP' :: Bool -> (Char -> Bool) -> Parser String
 safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=[]

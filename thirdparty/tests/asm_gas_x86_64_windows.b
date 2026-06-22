@@ -9,5 +9,5 @@ foo() {
 
 main() {
     extrn printf;
-    printf("%d\n", foo());
+    printf("%d*n", foo());
 }

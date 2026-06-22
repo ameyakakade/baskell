@@ -3,10 +3,10 @@
 check(v) {
     extrn printf, exit;
     if (v == 69) {
-        printf("SUCCESS\n");
+        printf("SUCCESS*n");
         exit(0);
     } else {
-        printf("FAILURE: got %d\n", v);
+        printf("FAILURE: got %d*n", v);
         exit(1);
     }
 }
