@@ -32,15 +32,9 @@ main = do
   args <- getArgs
 
   let compilerDir = "/Users/ameya/Documents/Programming/baskell/src/"
-  cdir <- getCurrentDirectory
-  setCurrentDirectory compilerDir
-
-  newC <- runIfChanged False ["Main.hs", "Parser.hs", "BParser.hs", "Generator.hs", "TargetGasAArch64MacOS.hs"] "baskell"
-          (prettyProcess $ readProcessWithExitCode "/Users/ameya/.ghcup/bin/ghc" ["-o", "baskell", "Main.hs"] "")
-
-  setCurrentDirectory cdir
 
   let std = compilerDir ++ "write.o"
+  let newC = False
 
   let nC = isJust $ find (=="-B") args
   let sourceFiles = filter (isSuffixOf ".b") args
