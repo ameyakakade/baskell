@@ -29,6 +29,7 @@ data BStatement = Auto     [(BName, Maybe Int)]
                 | Goto     BRValue
                 | BReturn  (Maybe BRValue)
                 | SRValue  BRValue
+                | Empty
                 deriving (Eq, Show)
 
 data BRValue = BracketRValue BRValue
@@ -110,8 +111,8 @@ data BName = BName { name :: String, nameLoc :: Int }
 
 -- WARNING: C like comments are supported
 bWhiteSpace :: Bool -> Parser String
-bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> (findEnd "*/") *> wsf
-                                  <|> stringP "//" *> (findEnd "\n") *> wsf
+bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> findEnd "*/" *> wsf
+                                  <|> stringP "//" *> findEnd "\n" *> wsf
                                   <|> pure "")
     where findEnd end = Parser $ \input -> do
                           (a, restIn) <- runParser (spanP (/= head end)) input
@@ -180,7 +181,7 @@ selectBracketed sI eI n = Parser $ \input -> do
                             let firstChar = runParser (charP sI) input
                             runParser ((if isLeft firstChar
                                        then replaceErr st
-                                       else failureToError st) $ (selectBracketedE sI eI n)) input
+                                       else failureToError st) (selectBracketedE sI eI n)) input
     where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair." 
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
@@ -293,7 +294,7 @@ pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>=
                                Right (flhs, restIn'')
 
 bRValue' :: Bool -> Parser BRValue
-bRValue' trying = (ignoreErrorIndex ((,,) <$> (safeSpanP' True) (/='?') <* charP '?' <*> (safeSpanP' True) (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
+bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP' True (/='?') <* charP '?' <*> (safeSpanP' True) (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
                  \(c,l,r) -> Parser $ \(loc, i) -> do
                                (ce, (loc', _)) <- runParser (bws *> bRValueStrict) (loc, c)
                                (le, (loc'', _)) <- runParser (bws *> bRValueStrict) (loc', l)
@@ -359,13 +360,14 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
              <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
+             <|> Empty <$ bws <* charP ';'
              <|> fmap SRValue (selSt bRValueStrict)
 
-    where selSt p = (safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';') >>> failureToError "Could not parse statement." p
-          keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
-          keywordSpacer i = Parser $ \input -> do
-                            runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
-                            return ("", input)
+selSt p = (safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';') >>> failureToError "Could not parse statement." p
+keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
+    where keywordSpacer i = Parser $ \input -> do
+                              runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
+                              return ("", input)
 
 parseNum :: Parser (Maybe Int)
 parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
@@ -373,14 +375,26 @@ parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
 bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
-               (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> bStatement)
+               (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> (bNakedStatements <|> bStatement))
               <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
                       ((charP '[' *> bws *>((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']') <|> bws $> Nothing) <* bws<*>     -- parsing maybe constant
                       ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal) <|> return []) <* charP ';'-- parsing ivals
 
+bNakedStatements :: Parser BStatement
+bNakedStatements = fmap Block $ (\x y-> x ++ [y]) <$> tryingRepeatedParser (naked <* bws) <*> bStatement
+    where naked = fmap Extrn (keywordParser "extrn" *>
+                              newErr "Expected a name." (selSt ((:) <$> (bName <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> bName)) ))
+                  <|> fmap Auto (keywordParser "auto" *>
+                                 newErr "Expected a name." (selSt (let f = (,) <$> (bName <* bws) <*> parseNum
+                                                                   in (:) <$> (f <* bws) <*> repeatedParser (bws *> charP ',' *> bws *> f)) ))
+
 bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
 
---TODO: Using ** inside string literals doesnt work as rvalue;
---TODO: Investigate if string literals are indexed properly.
---TODO: Multiple comments in a row cause errors
+-- TODO: Using ** inside string literals doesnt work as rvalue;
+-- TODO: Investigate if string literals are indexed properly.
+-- TODO: Postpone things like escaping chars and C style assignment to generator.
+--       This way we can turn those things off. Parse all you can and error out in
+--       generator. It still is difficult to turn off C-like one line comments
+
+-- TODO: Block that contains only auto or extrn without following statement should fail

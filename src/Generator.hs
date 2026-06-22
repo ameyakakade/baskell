@@ -182,6 +182,7 @@ gStatement c statement = case statement of
                                                            where (rArg, c') = gRValue c a
                                                                  newOp = Return $ Just rArg
                                BReturn Nothing      -> addOp (Return Nothing) c
+                               Empty                -> c
 
 gBlock :: Compiler -> [BStatement] -> Compiler
 gBlock c ss = c'' { cAutoVarCount = autoVarC }
