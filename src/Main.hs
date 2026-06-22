@@ -53,13 +53,13 @@ main = do
 
          traverse_ (\fileName -> do
                     runIfChanged nC [fileName]
-                                     (getFileName ".as" fileName)
+                                     (getFileName ".s" fileName)
                                      (compileFile False fileName)
 
-                    runIfChanged nC [getFileName ".as" fileName]
+                    runIfChanged nC [getFileName ".s" fileName]
                                      (getFileName ".o" fileName)
-                                     (prettyProcess $ readProcessWithExitCode "as"
-                                                        ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".as" fileName] "")
+                                     (prettyProcess $ readProcessWithExitCode "s"
+                                                        ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
                   ) sourceFiles
 
          runIfChanged nC (objectFiles ++ (std:map (getFileName ".o") sourceFiles))
@@ -118,7 +118,7 @@ compileFile dumpInfo fileName = do
           let asmo = asm (snd irp)
           if null (fst irp)
           then do
-            writeFile (getFileName ".as" fileName) asmo
+            writeFile (getFileName ".s" fileName) asmo
             putStrLn "Compiled successfully"
           else do
             putStr $ unlines $ map (\e -> if isNothing $ genErrorLocLength e
