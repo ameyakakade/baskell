@@ -108,19 +108,21 @@ data BConstant = Digit       Int
 data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
 
-bWhiteSpace skipNewlines = wsf *> stringP "/*" *> findEnd *> wsf
-      <|> wsf
-      where findEnd = Parser $ \input -> do
-                                (a, restIn) <- runParser (spanP (/= '*')) input
-                                let a = runParser (charP '*' *> charP '/') restIn
-                                if isLeft a
-                                then do
-                                  (_, restIn') <- runParser (charP '*') restIn
-                                  runParser findEnd restIn'
-                                else do
-                                  let Right (_, restIn'') = a
-                                  runParser bws restIn''
-            wsf = if skipNewlines then ws else wsnn
+bWhiteSpace :: Bool -> Parser String
+bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> (findEnd "*/") *> wsf
+                                  <|> stringP "//" *> (findEnd "\n") *> wsf
+                                  <|> pure "")
+    where findEnd end = Parser $ \input -> do
+                          (a, restIn) <- runParser (spanP (/= head end)) input
+                          let a = runParser (stringP end) restIn
+                          if isLeft a
+                          then do
+                            (_, restIn') <- runParser (charP '*') restIn
+                            runParser (findEnd end) restIn'
+                          else do
+                            let Right (_, restIn'') = a
+                            runParser bws restIn''
+          wsf = if skipNewlines then ws else wsnn
 
 bws = bWhiteSpace True
 bwsnn = bWhiteSpace False

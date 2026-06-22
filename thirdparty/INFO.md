@@ -2,3 +2,5 @@
 
 Bext-lang supports C like assignment operators (a+=1) as well.
 Baskell also supports both for compatibility.
+
+Bext-lang supports C like escape characters. B uses '*' for escaping.
