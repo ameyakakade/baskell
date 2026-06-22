@@ -177,7 +177,7 @@ selectBracketed sI eI n = Parser $ \input -> do
                             let firstChar = runParser (charP sI) input
                             runParser ((if isLeft firstChar
                                        then replaceErr st
-                                       else failureToError st) $ (selectBracketedE sI eI n)) input
+                                       else failureToError st) (selectBracketedE sI eI n)) input
     where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair." 
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
@@ -288,7 +288,7 @@ pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>=
                                Right (flhs, restIn'')
 
 bRValue' :: Bool -> Parser BRValue
-bRValue' trying = (ignoreErrorIndex ((,,) <$> (safeSpanP' True) (/='?') <* charP '?' <*> (safeSpanP' True) (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
+bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP' True (/='?') <* charP '?' <*> safeSpanP' True (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
                  \(c,l,r) -> Parser $ \(loc, i) -> do
                                (ce, (loc', _)) <- runParser (bws *> bRValueStrict) (loc, c)
                                (le, (loc'', _)) <- runParser (bws *> bRValueStrict) (loc', l)
@@ -336,7 +336,7 @@ bRValueOnly = fmap RConstant bConstant
               <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
 
 bStatement :: Parser BStatement
-bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "Invalid statement" $ repeatedParser (bws *> bStatement <* bws)))
+bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "Invalid statement." $ repeatedParser (bws *> bStatement <* bws)))
              <|> fmap While (stringP "while" *> bws *> (charP '(' *> bRValue <* charP ')')) <* bws <*> bStatement
              <|> fmap Goto (keywordParser "goto" *>
                             newErr "Expected a RValue" (selSt bRValue))
@@ -350,7 +350,7 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
                  bStatement <*> return Nothing
              <|> fmap BReturn ((stringP "return" *> bws *> charP ';') $> Nothing)
-             <|> fmap BReturn (keywordParser "return" *> (selSt $ fmap Just bRValue))
+             <|> fmap BReturn (keywordParser "return" *> selSt (fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
              <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
