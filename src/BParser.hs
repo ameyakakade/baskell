@@ -6,6 +6,7 @@ import Data.Char
 import Data.Either
 import Data.Maybe
 import Data.Functor
+import Data.List
 import Control.Applicative
 
 type BProgram = [BDefinition]
@@ -108,6 +109,8 @@ data BConstant = Digit       Int
 
 data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
+
+keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__"]
 
 -- WARNING: C like comments are supported
 bWhiteSpace :: Bool -> Parser String
@@ -265,7 +268,10 @@ parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
 bName :: Parser BName
 bName = Parser $ \(loc, i) -> do
           (r, restIn) <- runParser (fmap (:) (predicateP (\x -> (x=='_') || isAlpha x) "Expected identifier.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
-          return (BName r loc, restIn)
+          let f = find (==r) keywords
+          if isJust f
+          then Left (Error (r ++ " is a reserved keyword.\n") (loc, i))
+          else return (BName r loc, restIn)
 
 bRValue = bRValue' True
 bRValueStrict = bRValue' False

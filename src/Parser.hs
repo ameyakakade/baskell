@@ -133,4 +133,8 @@ f >>> g = Parser $ \input -> do
 
 ignoreErrorIndex p = Parser $ \input -> do
                              let o = runParser p input
-                             if isLeft o then (\(Left (Failure err (loc, s))) -> Left (Failure err (fst input, s))) o else o
+                             if isLeft o
+                             then case o of
+                                    (Left (Failure err (loc, s))) -> Left (Failure err (fst input, s))
+                                    (Left (Error e i)) -> Left (Error e i)
+                             else o

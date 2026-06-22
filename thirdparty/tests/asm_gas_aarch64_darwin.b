@@ -8,5 +8,5 @@ foo() {
 
 main() {
     extrn printf2; // TODO: Replace printf2 after adding variadics
-    printf("%d*n", foo());
+    printf2("%d*n", foo());
 }
