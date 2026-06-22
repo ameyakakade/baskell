@@ -264,7 +264,7 @@ parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
 
 bName :: Parser BName
 bName = Parser $ \(loc, i) -> do
-          (r, restIn) <- runParser (fmap (:) (predicateP isAlpha "Expected identifier.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
+          (r, restIn) <- runParser (fmap (:) (predicateP (\x -> (x=='_') || isAlpha x) "Expected identifier.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
           return (BName r loc, restIn)
 
 bRValue = bRValue' True
@@ -335,11 +335,25 @@ bRValueSingleLValue = fmap RLValue bSingleLValue
 bRValueFunctionCall :: Parser BRValue
 bRValueFunctionCall = FunctionCall <$> bSingleRValue <*>
                         finiteSelectBracketed '(' ')'
-                        (ws *> repeatedParser (spanP (==',') *> ws *> (safeSpanP' True (/=',') >>> bRValue) <* ws))
+                        (bws *> ( Parser $ \input -> do
+                                    let parseArg = (safeSpanP' True (/=',') >>> bRValue)
+                                    if null $ snd input
+                                    then return ([], input)
+                                    else do
+                                      (p, restIn) <- runParser parseArg input
+                                      let ups = runParser (repeatedParser (bws *> charP ',' *> bws *> parseArg <* bws)) restIn
+                                      if isLeft ups
+                                      then let Left upse = ups
+                                           in Left $ case upse of
+                                                       Failure oldErr i -> Error "Invalid argument to function." i
+                                                       Error s i -> Error s i
+                                      else let Right (ps, restIn') = ups
+                                           in return (p:ps, restIn')
+                                ))
 
 bRValueOnly :: Parser BRValue
 bRValueOnly = fmap RConstant bConstant
-              <|> fmap BracketRValue (ws *> finiteSelectBracketed '(' ')' bRValue <* ws)
+              <|> fmap BracketRValue (bws *> finiteSelectBracketed '(' ')' bRValue <* bws)
 
 bStatement :: Parser BStatement
 bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "Invalid statement" $ repeatedParser (bws *> bStatement <* bws)))
@@ -363,7 +377,7 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> Empty <$ bws <* charP ';'
              <|> fmap SRValue (selSt bRValueStrict)
 
-selSt p = (safeSpanP (\x -> all ($ x) [(/=';'), (/='\n')]) <* charP ';') >>> failureToError "Could not parse statement." p
+selSt p = (safeSpanP (\x -> all ($ x) [(/=';')]) <* charP ';') >>> p
 keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
     where keywordSpacer i = Parser $ \input -> do
                               runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input

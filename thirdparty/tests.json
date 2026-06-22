@@ -2147,5 +2147,13 @@
         "expected_stdout": "",
         "state": "Disabled",
         "comment": "Doesn't make sense for this target"
+    },
+
+    {
+        "case": "asm_gas_aarch64_darwin",
+        "target": "gas-aarch64-darwin",
+        "expected_stdout": "3\n",
+        "state": "Enabled",
+        "comment": ""
     }
 ]
