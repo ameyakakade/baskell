@@ -9,6 +9,7 @@ import Control.Monad
 import System.Environment
 import System.Process
 import System.Directory
+import System.Exit
 import Data.Maybe
 import Data.List
 import Data.Foldable
@@ -68,9 +69,9 @@ main = do
 
 prettyProcess :: Show a => IO (a, String, String) -> IO ()
 prettyProcess p = do
-  (exit, stdin, stderr) <- p
+  (exit, stdout, stderr) <- p
   print exit
-  putStr stdin
+  putStr stdout
   putStr stderr
 
 runIfChanged :: Show a => Bool -> [FilePath] -> FilePath -> IO a -> IO Bool
@@ -126,6 +127,7 @@ compileFile dumpInfo fileName = do
                        (fst irp)
             putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
             putStrLn ""
+            exitWith (ExitFailure 1)
 
           when dumpInfo (do
                 putStrLn "\nASM:"
@@ -136,12 +138,14 @@ compileFile dumpInfo fileName = do
                 putStr $ fileName ++ ":"
                 putStrLn $ findLoc newLines loc
                 putStr $ unlines errors
+                exitWith (ExitFailure 1)
 
     (Left (Error error (loc, s))) -> do
                 putStrLn "Syntax error"
                 putStr $ fileName ++ ":"
                 putStrLn $ findLoc newLines loc
                 putStr error
+                exitWith (ExitFailure 1)
 
 findLoc :: [Int] -> Int -> String
 findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
