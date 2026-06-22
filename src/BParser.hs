@@ -203,6 +203,7 @@ bIVal = fmap IConstant bConstant
 
 bAssign :: Parser BAssign
 bAssign = fmap BinaryAssign (charP '=' *> bBinary)
+          <|> fmap BinaryAssign (bBinary <* charP '=')
           <|> fmap (const Assign) (charP '=')
 
 bIncDec :: Parser BIncDec
