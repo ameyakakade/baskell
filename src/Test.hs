@@ -55,7 +55,7 @@ testCase (JsonObject maps) = do
   else do
     let comment = getJsonValue "comment"
     when (not $ null comment) $ putStrLn $ "Comment: " ++ comment
-    (exit, stdout, stderr) <- readProcessWithExitCode "../../src/baskell" [fileName] ""
+    (exit, stdout, stderr) <- readProcessWithExitCode "../../src/baskell" [fileName, "-B"] ""
     fe <- doesFileExist caseName
     if exit==(ExitSuccess) && fe
     then do

@@ -108,6 +108,7 @@ data BConstant = Digit       Int
 data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
 
+-- WARNING: C like comments are supported
 bWhiteSpace :: Bool -> Parser String
 bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> (findEnd "*/") *> wsf
                                   <|> stringP "//" *> (findEnd "\n") *> wsf
@@ -132,16 +133,16 @@ escapedStringP predicate = Parser f
   where
     f (c, []) = Right ([], (c, []))
     f (c, x:xs)
-      | x=='*' = let (a:as) = xs
-                     a' = escapedChars a
-                 in if isNothing a'
-                    then Left (Error "Invalid escape char" (c, xs))
-                    else let b = f (c, as)
-                         in if isRight b
-                            then let Right (ys, (c', zs)) = b
-                                     c'' = c'+2
-                                 in Right (fromJust a':ys, (c'', zs))
-                            else b
+      | x=='\\' = let (a:as) = xs
+                      a' = escapedChars a
+                  in if isNothing a'
+                     then Left (Error "Invalid escape char" (c, xs))
+                     else let b = f (c, as)
+                          in if isRight b
+                             then let Right (ys, (c', zs)) = b
+                                      c'' = c'+2
+                                  in Right (fromJust a':ys, (c'', zs))
+                             else b
       | predicate x = let a = f (c, xs)
                       in if isRight a
                          then let Right (ys, (c', zs)) = a
@@ -153,8 +154,9 @@ escapedStringP predicate = Parser f
                        '0' -> Just '\0'
                        'n' -> Just '\n'
                        '"' -> Just '\"'
-                       '*' -> Just '*'
+                       '\\' -> Just '\\'
                        a   -> Nothing
+-- WARNING: '\' is used as escape character instead of '*'
 
 safeSpanP' :: Bool -> (Char -> Bool) -> Parser String
 safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=[]
@@ -203,6 +205,7 @@ bIVal :: Parser BIVal
 bIVal = fmap IConstant bConstant
         <|> fmap IName bName
 
+-- WARNING: C style assignment is allowed
 bAssign :: Parser BAssign
 bAssign = fmap BinaryAssign (charP '=' *> bBinary)
           <|> fmap BinaryAssign (bBinary <* charP '=')
