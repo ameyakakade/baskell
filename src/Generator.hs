@@ -32,6 +32,7 @@ data Op = UnaryNot        Word   Arg          -- result, arg
         | JmpLabel        Word                -- label index
         | JmpIfZeroLabel  Word   Arg          -- label index, arg
         | Return          (Maybe Arg)         -- arg
+        | Asm             [String]            -- arg
           deriving (Eq, Show)
 
 data Storage = StorageExternal String
@@ -182,6 +183,7 @@ gStatement c statement = case statement of
                                                            where (rArg, c') = gRValue c a
                                                                  newOp = Return $ Just rArg
                                BReturn Nothing      -> addOp (Return Nothing) c
+                               InlineAsm a          -> addOp (Asm a) c
                                Empty                -> c
 
 gBlock :: Compiler -> [BStatement] -> Compiler

@@ -113,6 +113,7 @@ aOp funName countParam countAutoVars o = case o of
           Negate dest arg -> aArg 0 arg ++
                              "NEG X0, X0\n" ++
                              storeVarOnStack 0 dest
+          Asm a -> unlines a
     where fl (External s) = "BL _" ++ s
           fl a = aArg 16 a ++ "\n" ++ "BLR X16"
 
