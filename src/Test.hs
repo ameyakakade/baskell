@@ -36,10 +36,10 @@ main = do
   setCurrentDirectory "../thirdparty/tests/"
   ls <- traverse testCase filteredJsonTree
   putStrLn ""
-  putStrLn $ "Passed:   " ++ (show $ length $ filter (==0) ls)
-  putStrLn $ "Failed:   " ++ (show $ length $ filter (==2) ls)
-  putStrLn $ "Error:    " ++ (show $ length $ filter (==1) ls)
-  putStrLn $ "Disabled: " ++ (show $ length $ filter (==3) ls)
+  putStrLn $ "Passed:   " ++ show (length $ filter (==0) ls)
+  putStrLn $ "Failed:   " ++ show (length $ filter (==2) ls)
+  putStrLn $ "Error:    " ++ show (length $ filter (==1) ls)
+  putStrLn $ "Disabled: " ++ show (length $ filter (==3) ls)
   return ()
 
 testCase :: JsonValue -> IO Int 
@@ -48,7 +48,7 @@ testCase (JsonObject maps) = do
   let caseName = getJsonValue "case"
   let fileName = caseName ++ ".b"
   doesFileExist fileName >>= (\x -> when x (putStrLn $ "ERROR: File \"" ++ fileName ++ "\" not found.")) . not
-  if (getJsonValue "state")=="Disabled"
+  if getJsonValue "state"=="Disabled"
   then do
     putStrLn $ "Test " ++ fileName ++ " is disabled"
     return 3

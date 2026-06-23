@@ -2155,5 +2155,12 @@
         "expected_stdout": "3\n",
         "state": "Enabled",
         "comment": ""
+    },
+    {
+        "case": "asm_func_gas_aarch64_darwin",
+        "target": "gas-aarch64-darwin",
+        "expected_stdout": "69\n",
+        "state": "Enabled",
+        "comment": ""
     }
 ]

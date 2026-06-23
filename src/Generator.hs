@@ -53,11 +53,18 @@ data Function = Function {
       autoVarCount :: Word
     } deriving (Eq, Show)
 
+data NFunction = NFunction {
+      nFunName      :: String,
+      nFunLoc       :: Int,
+      nBody         :: [String]
+    } deriving (Eq, Show)
+
 data IRProgram = IRProgram {
-      functions     :: [Function],
-      staticData    :: [Word8],
-      globalVars    :: [(String, Maybe Int, [Arg])],
-      extrns        :: [String]
+      functions      :: [Function],
+      nakedFunctions :: [NFunction],
+      staticData     :: [Word8],
+      globalVars     :: [(String, Maybe Int, [Arg])],
+      extrns         :: [String]
     } deriving (Eq, Show)
 
 data GenError = GenError {
@@ -81,7 +88,7 @@ data Compiler = Compiler {
       cAutoVarCountMax :: Word
     } deriving (Eq, Show)
 
-emptyCompiler = Compiler (IRProgram [] [] [] []) [] [[]] [] [] 0 0 0 0
+emptyCompiler = Compiler (IRProgram [] [] [] [] []) [] [[]] [] [] 0 0 0 0
 
 initCompiler :: BProgram -> Compiler
 initCompiler = foldl' folder emptyCompiler
@@ -97,6 +104,10 @@ initCompiler = foldl' folder emptyCompiler
                                                    newGV = (name vn, vs, ivs)
                                                    newP = (program c') { globalVars = newGV:globalVars (program c') }
                                                in (declareVarExtrn vn c') { program = newP, globalNames = vn:globalNames c' }
+                         NakedFunction n block -> (declareVarExtrn n c) { program = newProgram, globalNames = n:(globalNames c) }
+                             where oldP = program c
+                                   newProgram = oldP { nakedFunctions = newNF:(nakedFunctions oldP) }
+                                   newNF = NFunction (name n) (nameLoc n) block
 
 newLabel :: Compiler -> Compiler
 newLabel c = c { functionLabelCount = functionLabelCount c + 1 }
@@ -157,6 +168,7 @@ gCompile a = foldr gDefinition (initCompiler a) a
 gDefinition :: BDefinition -> Compiler -> Compiler
 gDefinition (FDefinition name args block) = gFunction name args block
 gDefinition (GlobalVar n mc ivals) = id
+gDefinition (NakedFunction n block) = id
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
 gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', globalNames = globalNames c'}

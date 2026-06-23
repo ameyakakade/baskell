@@ -13,6 +13,7 @@ type BProgram = [BDefinition]
 
 data BDefinition = FDefinition {fName :: BName, fArgs :: [BName], fStatement :: BStatement}
                  | GlobalVar {vName :: BName, vSize :: Maybe Int, vInit :: [BIVal]}
+                 | NakedFunction {nfName :: BName, nfAsm :: [String]}
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -262,7 +263,7 @@ parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
                                (fmap (:) (predicateP octalChars "Expected valid octal constant.") <*> spanP octalChars))
           <|> fmap (Digit . read) digitParser
     where digitParser = fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit
-          hexChars x = any ($ x) (map (==) "0123456789ABCDEF")
+          hexChars x = any ($ x) (map (==) "0123456789ABCDEFabcdef")
           binaryChars x = any ($ x) (map (==) "01")
           octalChars x = any ($ x) (map (==) "01234567")
 
@@ -342,7 +343,7 @@ bRValueSingleLValue = fmap RLValue bSingleLValue
 bRValueFunctionCall :: Parser BRValue
 bRValueFunctionCall = FunctionCall <$> bSingleRValue <*>
                         finiteSelectBracketed '(' ')'
-                        (bws *> ( Parser $ \input -> do
+                        (bws *> Parser (\input -> do
                                     let parseArg = safeSpanP' True (/=',') >>> bRValue
                                     if null $ snd input
                                     then return ([], input)
@@ -377,22 +378,25 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> fmap IfElse (stringP "if" *> bws *> (charP '(' *> bRValue <* charP ')') <* bws) <*>
                  bStatement <*> return Nothing
              <|> fmap BReturn ((stringP "return" *> bws *> charP ';') $> Nothing)
-             <|> fmap BReturn (keywordParser "return" *> (selSt $ fmap Just bRValue))
+             <|> fmap BReturn (keywordParser "return" *> selSt (fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
-             <|> let sc = charP '"' *> escapedStringP (/='"') <* charP '"'
-                 in fmap InlineAsm (stringP "__asm__" *> bws *> (charP '(' *> bws *>
-                                                                       (((:) <$> sc <* bws <*> (tryingRepeatedParser (bws *> charP ',' *> bws *> sc)))
-                                                                       <|> ([] <$ bws)) <* bws <* charP ')' <* charP ';'))
+             <|> fmap InlineAsm parseInlineAsm 
              <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> Empty <$ bws <* charP ';'
              <|> fmap SRValue (selSt bRValueStrict)
 
-selSt p = (safeSpanP (\x -> all ($ x) [(/=';')]) <* charP ';') >>> p
+selSt p = (safeSpanP (/=';') <* charP ';') >>> p
 keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
     where keywordSpacer i = Parser $ \input -> do
                               runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
                               return ("", input)
+
+parseInlineAsm :: Parser [String]
+parseInlineAsm = stringP "__asm__" *> bws *> (charP '(' *> bws *>
+                                              (((:) <$> sc <* bws <*> tryingRepeatedParser (bws *> charP ',' *> bws *> sc))
+                                              <|> ([] <$ bws)) <* bws <* charP ')' <* charP ';')
+    where sc = charP '"' *> escapedStringP (/='"') <* charP '"'
 
 parseNum :: Parser (Maybe Int)
 parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
@@ -401,6 +405,7 @@ bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
                (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> (bNakedStatements <|> bStatement))
+              <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
               <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
                       ((charP '[' *> bws *>((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']') <|> bws $> Nothing) <* bws<*>     -- parsing maybe constant
                       ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal) <|> return []) <* charP ';'-- parsing ivals
@@ -423,4 +428,3 @@ bProgram = repeatedParser (bws *> bDefinition <* bws)
 --       generator. It still is difficult to turn off C-like one line comments
 
 -- TODO: Block that contains only auto or extrn without following statement should fail
--- TODO: Add parser for inline assembly

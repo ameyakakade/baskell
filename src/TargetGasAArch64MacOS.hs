@@ -10,6 +10,7 @@ asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
         concatMap aFunction (functions p) ++ "\n" ++
         aGlobalVarSection (globalVars p) ++ "\n" ++
+        concatMap aNakedFunctionSection (nakedFunctions p) ++ "\n" ++
         aDataSection (staticData p)
 
 aProgramPrologue :: String
@@ -40,7 +41,13 @@ aGlobalVarArg :: Arg -> String
 aGlobalVarArg (External a)   = "_" ++ a
 aGlobalVarArg (Literal a)    = show a
 aGlobalVarArg (DataOffset a) = ".dat +" ++ show a
-                                     ;
+
+aNakedFunctionSection :: NFunction -> String
+aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = ".global _" ++ nfName ++ "\n" ++
+                                                         ".p2align 4\n" ++
+                                                         "_" ++ nfName ++ ":\n" ++
+                                                         (unlines nfBlock)
+
 aFunction :: Function -> String
 aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
               concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
