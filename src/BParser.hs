@@ -380,6 +380,11 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> fmap BReturn (keywordParser "return" *> (selSt $ fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
+             <|> let sc = charP '"' *> escapedStringP (/='"') <* charP '"'
+                 in fmap InlineAsm (stringP "__asm__" *> bws *> (charP '(' *> bws *>
+                                                                       (((:) <$> sc <* bws <*> (tryingRepeatedParser (bws *> charP ',' *> bws *> sc)))
+                                                                       <|> ([] <$ bws)) <* bws <* charP ')' <* charP ';'))
+             <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> Empty <$ bws <* charP ';'
              <|> fmap SRValue (selSt bRValueStrict)
 
