@@ -58,7 +58,7 @@ main = do
 
                     runIfChanged nC [getFileName ".s" fileName]
                                      (getFileName ".o" fileName)
-                                     (prettyProcess $ readProcessWithExitCode "s"
+                                     (prettyProcess $ readProcessWithExitCode "as"
                                                         ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
                   ) sourceFiles
 

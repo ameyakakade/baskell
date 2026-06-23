@@ -33,8 +33,8 @@ instance Alternative (Either ParserError) where
   empty = Left (Failure [] (0,"UNREACHABLE"))
   (Right a) <|> _ = Right a 
   (Left  (Failure a e)) <|> (Right b) = Right b
-  _ <|> (Left (Error e i)) = Left (Error e i)
   (Left (Error e i)) <|> _ = Left (Error e i)
+  _ <|> (Left (Error e i)) = Left (Error e i)
   (Left (Failure e1 (c1, s1))) <|> (Left (Failure e2 (c2, s2))) = if c1 >= c2 -- return the failure which parsed the most
                                                             then Left (Failure e1 (c1, s1))
                                                             else Left (Failure e2 (c2, s2))

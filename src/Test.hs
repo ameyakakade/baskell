@@ -57,7 +57,7 @@ testCase (JsonObject maps) = do
     unless (null comment) $ putStrLn $ "Comment: " ++ comment
     (exit, stdout, stderr) <- readProcessWithExitCode "../../src/baskell" [fileName, "-B"] ""
     fe <- doesFileExist caseName
-    if exit==(ExitSuccess) && fe
+    if exit==ExitSuccess && fe
     then do
       putStrLn $ "Compiled " ++ fileName ++ " successfully."
       (exit, stdout, stderr) <- readProcessWithExitCode ("./"++caseName) [] ""
@@ -67,7 +67,7 @@ testCase (JsonObject maps) = do
         putStrLn "Test passed successfully :)"
         return 0
       else do
-        putStrLn $ "FAILED: Couldn't match output " ++ (show stdout) ++ " with expected output " ++ (show expectedOut)
+        putStrLn $ "FAILED: Couldn't match output " ++ show stdout ++ " with expected output " ++ show expectedOut
         return 2
     else do
       putStrLn $ "ERROR: Could not compile " ++ fileName ++ "."

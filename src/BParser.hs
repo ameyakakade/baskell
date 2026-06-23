@@ -19,17 +19,18 @@ data BIVal = IConstant BConstant
            | IName BName
            deriving (Eq, Show)
 
-data BStatement = Auto     [(BName, Maybe Int)]
-                | Extrn    [BName]
-                | BLabel   BName BStatement
-                | Case     BConstant BStatement
-                | Block    [BStatement]
-                | IfElse   BRValue BStatement (Maybe BStatement)
-                | While    BRValue BStatement
-                | Switch   BRValue BStatement
-                | Goto     BRValue
-                | BReturn  (Maybe BRValue)
-                | SRValue  BRValue
+data BStatement = Auto      [(BName, Maybe Int)]
+                | Extrn     [BName]
+                | BLabel    BName BStatement
+                | Case      BConstant BStatement
+                | Block     [BStatement]
+                | IfElse    BRValue BStatement (Maybe BStatement)
+                | While     BRValue BStatement
+                | Switch    BRValue BStatement
+                | Goto      BRValue
+                | BReturn   (Maybe BRValue)
+                | SRValue   BRValue
+                | InlineAsm [String]
                 | Empty
                 deriving (Eq, Show)
 
@@ -300,7 +301,7 @@ pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>=
                                Right (flhs, restIn'')
 
 bRValue' :: Bool -> Parser BRValue
-bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP' True (/='?') <* charP '?' <*> (safeSpanP' True) (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
+bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP' True (/='?') <* charP '?' <*> safeSpanP' True (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
                  \(c,l,r) -> Parser $ \(loc, i) -> do
                                (ce, (loc', _)) <- runParser (bws *> bRValueStrict) (loc, c)
                                (le, (loc'', _)) <- runParser (bws *> bRValueStrict) (loc', l)
@@ -342,7 +343,7 @@ bRValueFunctionCall :: Parser BRValue
 bRValueFunctionCall = FunctionCall <$> bSingleRValue <*>
                         finiteSelectBracketed '(' ')'
                         (bws *> ( Parser $ \input -> do
-                                    let parseArg = (safeSpanP' True (/=',') >>> bRValue)
+                                    let parseArg = safeSpanP' True (/=',') >>> bRValue
                                     if null $ snd input
                                     then return ([], input)
                                     else do
@@ -378,7 +379,6 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> fmap BReturn ((stringP "return" *> bws *> charP ';') $> Nothing)
              <|> fmap BReturn (keywordParser "return" *> (selSt $ fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
-             <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
              <|> Empty <$ bws <* charP ';'
              <|> fmap SRValue (selSt bRValueStrict)
@@ -418,3 +418,4 @@ bProgram = repeatedParser (bws *> bDefinition <* bws)
 --       generator. It still is difficult to turn off C-like one line comments
 
 -- TODO: Block that contains only auto or extrn without following statement should fail
+-- TODO: Add parser for inline assembly
