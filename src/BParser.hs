@@ -160,6 +160,7 @@ escapedStringP predicate = Parser f
                        '0' -> Just '\0'
                        'n' -> Just '\n'
                        '"' -> Just '\"'
+                       't' -> Just '\t'
                        '*' -> Just '*'
                        a   -> Nothing
 
@@ -302,14 +303,7 @@ pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>=
                                Right (flhs, restIn'')
 
 bRValue' :: Bool -> Parser BRValue
-bRValue' trying = (ignoreErrorIndex ((,,) <$> safeSpanP' True (/='?') <* charP '?' <*> safeSpanP' True (/=':') <* charP ':' <*> safeSpanP (const True)) >>=
-                 \(c,l,r) -> Parser $ \(loc, i) -> do
-                               (ce, (loc', _)) <- runParser (bws *> bRValueStrict) (loc, c)
-                               (le, (loc'', _)) <- runParser (bws *> bRValueStrict) (loc', l)
-                               (re, _) <- runParser (bws *> bRValueStrict) (loc'', r)
-                               return (Ternary ce le re, (loc, i))
-                 )
-                 <|> Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
+bRValue' trying = Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
                  <|> newErr "Could not parse expression." (pratter trying 0)
 
 bLValue :: Parser BLValue

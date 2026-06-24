@@ -227,6 +227,7 @@ gRValue c rvalue = case rvalue of
                      IncDecPost l op      -> gIncDec l op True c
                      IncDecPre  op l      -> gIncDec l op False c
                      RUnary op r          -> gUnary op r c
+                     Ternary cond t f     -> gTernary cond t f c
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
 gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
@@ -293,6 +294,14 @@ gUnary op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 c')
                      Not -> UnaryNot
                      Negative -> Negate
                   ) resultAutoVar rArg
+
+gTernary :: BRValue -> BRValue -> BRValue -> Compiler -> (Arg, Compiler)
+gTernary cond t f c = (AutoVar (cAutoVarCount c' - 1), c''''')
+    where (condArg, c') = gRValue (allocateAutoVariable 1 c) cond
+          (tArg, c'') = gRValue (addOp (JmpIfZeroLabel (functionLabelCount c''') condArg) c') t
+          c''' = (\x -> (addOp (Label (functionLabelCount x)) x)) $ (addOp (JmpLabel (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) tArg) c'')
+          (fArg, c'''') = gRValue (newLabel (c''' { cAutoVarCount = cAutoVarCount c' })) f
+          c''''' = newLabel $ (addOp (Label (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) fArg) c'''')
 
 gIncDec :: BLValue -> BIncDec -> Bool -> Compiler -> (Arg, Compiler)
 gIncDec l op post c = if post
