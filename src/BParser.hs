@@ -94,6 +94,7 @@ data BBinary = Or
              | Modulo
              | Multiply
              | Divide
+             | QuestionMark
              deriving (Eq, Show)
 
 data BLValue = LName       BName
@@ -243,6 +244,7 @@ bBinary = fmap (const Or) (stringP "|")
           <|> fmap (const Modulo) (stringP "%")
           <|> fmap (const Multiply) (stringP "*")
           <|> fmap (const Divide) (stringP "/")
+          <|> fmap (const QuestionMark) (stringP "?")
 
 bConstant :: Parser BConstant
 bConstant = parseNumConstant
@@ -292,15 +294,22 @@ pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>=
                            then if trying
                                 then return (lhs, (c,i))
                                 else let Left a = bop in Left a
-                           else do
-                             let Right (op, restIn) = bop
-                             let (lbp, rbp) = bindingPower op
-                             if lbp<minBP
-                             then Right (lhs, input)
-                             else do
-                               (rhs, restIn') <- runParser (pratter trying rbp) restIn
-                               (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
-                               Right (flhs, restIn'')
+                           else let Right (op, restIn) = bop
+                                in case op of
+                                     QuestionMark -> if minBP == 0
+                                                     then do
+                                                       (t, restIn') <- runParser ((pratter True 0) <* bws <* charP ':') restIn
+                                                       (f, restIn'') <- runParser (pratter True 0) restIn'
+                                                       return (Ternary lhs t f, restIn'')
+                                                     else Right (lhs, (c,i))
+                                     a -> do
+                                       let (lbp, rbp) = bindingPower op
+                                       if lbp<minBP
+                                       then Right (lhs, input)
+                                       else do
+                                         (rhs, restIn') <- runParser (pratter trying rbp) restIn
+                                         (flhs, restIn'') <- runParser (loop (Binary lhs op rhs)) restIn'
+                                         Right (flhs, restIn'')
 
 bRValue' :: Bool -> Parser BRValue
 bRValue' trying = Assignment <$> (bLValue <* ws) <*> (bAssign <* ws) <*> bRValue
