@@ -9,6 +9,7 @@ import Data.Char
 import Data.List
 import Data.Maybe
 import Data.Function
+import Data.Foldable
 import Control.Applicative
 
 data Arg = AutoVar     Word
@@ -72,7 +73,7 @@ data GenError = GenError {
       genErrorLocLength :: Maybe (Int, Int)
     } deriving (Eq, Show)
 
-data Compiler = Compiler {
+data CompilerState = CompilerState {
       program :: IRProgram,
       errors  :: [GenError],
 
@@ -88,239 +89,178 @@ data Compiler = Compiler {
       cAutoVarCountMax :: Word
     } deriving (Eq, Show)
 
-emptyCompiler = Compiler (IRProgram [] [] [] [] []) [] [[]] [] [] 0 0 0 0
+newtype Compiler a = Compiler { runCompiler :: CompilerState -> (CompilerState, a) }
 
-initCompiler :: BProgram -> Compiler
-initCompiler = foldl' folder emptyCompiler
-    where folder c d = case d of
-                         FDefinition fn _ _ -> c { globalNames = fn:globalNames c }
-                         GlobalVar vn vs vi -> let (ivs, c') =
-                                                       foldr (\g (gs, x) -> case g of
-                                                                              IConstant a -> let (na, x') = gConstant x a
-                                                                                             in (na:gs, x')
-                                                                              IName a -> let (na, x') = gLValue x (LName a)
-                                                                                         in (na:gs, x')
-                                                                              ) ([], c) vi
-                                                   newGV = (name vn, vs, ivs)
-                                                   newP = (program c') { globalVars = newGV:globalVars (program c') }
-                                               in (declareVarExtrn vn c') { program = newP, globalNames = vn:globalNames c' }
-                         NakedFunction n block -> (declareVarExtrn n c) { program = newProgram, globalNames = n:(globalNames c) }
-                             where oldP = program c
-                                   newProgram = oldP { nakedFunctions = newNF:(nakedFunctions oldP) }
-                                   newNF = NFunction (name n) (nameLoc n) block
+instance Functor Compiler where
+    fmap f (Compiler cf) = Compiler $ \c -> let (cs, t) = cf c in (cs, f t)
 
-newLabel :: Compiler -> Compiler
-newLabel c = c { functionLabelCount = functionLabelCount c + 1 }
+instance Applicative Compiler where
+    pure a = Compiler (,a)
+    (Compiler x) <*> (Compiler y) = Compiler $ \c -> let (cs, f) = x c
+                                                         (cs',t) = y cs
+                                                     in (cs', f t)
 
-allocateAutoVariable :: Int -> Compiler -> Compiler
-allocateAutoVariable sizeToAlloc c =
-    c { cAutoVarCount = count,
-                        cAutoVarCountMax = max (cAutoVarCountMax c) count }
-    where count = cAutoVarCount c + fromIntegral sizeToAlloc
+instance Monad Compiler where
+    x >>= y = Compiler $ \c -> let (cs, input) = runCompiler x c
+                               in runCompiler (y input) cs
 
-deallocateAutoVariable :: Int -> Compiler -> Compiler
-deallocateAutoVariable sizeToDealloc c = c { cAutoVarCount = count}
-    where count = cAutoVarCount c - fromIntegral sizeToDealloc
+setCompiler :: CompilerState -> Compiler ()
+setCompiler cs = Compiler $ const (cs,())
 
-declareVarExtrn :: BName -> Compiler -> Compiler
-declareVarExtrn n c = if isNothing (findVar (name n) c)
-                      then c { vars = newStack:remainingScopes, program = newProgram }
-                      else addError (Just n) (\x -> "Redefinition of variable '" ++ x ++ "'") c
-    where newStack = newVar:uppermostScope
-          newVar = Var (name n) (StorageExternal (name n)) (nameLoc n)
-          remainingScopes = drop 1 (vars c)
-          [uppermostScope] = take 1 (vars c)
-          newProgram = (program c) { extrns = name n:extrns (program c) }
+getCompiler :: Compiler CompilerState
+getCompiler = Compiler $ \cs -> (cs,cs)
 
-declareVarAuto :: (BName, Maybe Int) -> Compiler -> Compiler
-declareVarAuto (n, size) c = if isNothing (findVar (name n) c)
-                             then c' { vars = newStack:remainingScopes }
-                             else addError (Just n) (\x -> "Redefinition of variable '" ++ x ++ "'") c
-    where newStack = newVar:uppermostScope
-          newVar = Var (name n) (StorageAuto (cAutoVarCount c)) (nameLoc n)
-          remainingScopes = drop 1 (vars c)
-          [uppermostScope] = take 1 (vars c)
-          c' = allocateAutoVariable (fromMaybe 1 size) c
+updateCompiler :: (CompilerState -> CompilerState) -> Compiler ()
+updateCompiler f = Compiler $ \c -> (f c,())
 
-addOp :: Op -> Compiler -> Compiler
-addOp o c = c { functionBody = functionBody c ++ [o] }
+emptyCompiler = CompilerState (IRProgram [] [] [] [] []) [] [[]] [] [] 0 0 0 0
 
-addError :: Maybe BName -> (String -> String) -> Compiler -> Compiler
-addError n s c = c { errors = errors c ++ [ne] }
+newLabel :: Compiler Word
+newLabel = Compiler $ \c -> (c { functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
+
+allocateAutoVariable :: Word -> Compiler Word
+allocateAutoVariable sizeToAlloc = Compiler $ \c -> let count = cAutoVarCount c + sizeToAlloc
+                                                    in (c { cAutoVarCount = count,
+                                                           cAutoVarCountMax = max (cAutoVarCountMax c) count },
+                                                       cAutoVarCount c)
+
+deallocateAutoVariable :: Int -> Compiler ()
+deallocateAutoVariable sizeToDealloc = updateCompiler $ \c -> let count = cAutoVarCount c - fromIntegral sizeToDealloc
+                                                              in c { cAutoVarCount = count }
+
+addOp :: Op -> Compiler ()
+addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }
+
+addError :: Maybe BName -> (String -> String) -> Compiler ()
+addError n s = updateCompiler $ \c -> c { errors = errors c ++ [ne] }
     where ne = if isJust n
                then let n' = fromJust n in GenError (s (name n')) (Just (nameLoc n', length $ name n'))
                else GenError (s "") Nothing
 
+findVar :: String -> Compiler (Maybe Var)
+findVar n = do
+  cs <- getCompiler
+  let foundVars = mapMaybe (find (\x -> varName x == n)) (vars cs)
+  return $ if null foundVars then Nothing else let (hfv:_) = foundVars in Just hfv
+
+declareVar :: BName -> Storage -> Compiler ()
+declareVar n s = do
+  cs <- getCompiler
+  let newVar = Var (name n) s (nameLoc n)
+  let (uppermostScope:remainingScopes) = vars cs
+  redefinition <- findVar (name n)
+  if isNothing redefinition
+  then setCompiler ( cs { vars = (newVar:uppermostScope):remainingScopes } )
+  else addError (Just n) (\x -> "Redefinition of variable '" ++ x ++ "'")
+
+declareVarExtrn :: BName -> Compiler ()
+declareVarExtrn n = do
+  updateCompiler $ \c -> c { program = (program c) { extrns = name n:extrns (program c) } }
+  declareVar n (StorageExternal (name n)) 
+
+declareVarAuto :: (BName, Maybe Word) -> Compiler ()
+declareVarAuto (n, size) = do
+  autoVarIndex <- allocateAutoVariable (fromMaybe 1 size)
+  declareVar n (StorageAuto autoVarIndex)
+
+blockBegin :: Compiler ()
+blockBegin = updateCompiler $ \c -> c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c }
+
+blockEnd :: Compiler ()
+blockEnd = updateCompiler $ \c -> c { vars = drop 1 $ vars c, functionBlocksCount = functionBlocksCount c - 1 }
+
 bogusArg = External "bogusArgument"
 
-findVar :: String -> Compiler -> Maybe Var
-findVar n c = if null foundVars then Nothing else let (hfv:_) = foundVars in Just hfv
-    where findVar = find (\x -> varName x == n)
-          foundVars = mapMaybe findVar (vars c)
+gExtrn :: [BName] -> Compiler ()
+gExtrn = traverse_ declareVarExtrn
+
+gAuto :: [(BName, Maybe Word)] -> Compiler ()
+gAuto = traverse_ declareVarAuto
+
+initCompiler :: BProgram -> Compiler ()
+initCompiler = traverse_ folder
+    where folder d = case d of
+                       FDefinition fn _ _ -> updateCompiler $ \c -> c { globalNames = fn:globalNames c }
+                {-     GlobalVar vn vs vi -> let (ivs, c') = foldr (\g (gs, x) -> case g of
+                                                                                    IConstant a -> let (na, x') = gConstant x a
+                                                                                                   in (na:gs, x')
+                                                                                    IName a -> let (na, x') = gLValue x (LName a)
+                                                                                               in (na:gs, x')
+                                                       ) ([], c) vi
+                                                 newGV = (name vn, vs, ivs)
+                                                 newP = (program c') { globalVars = newGV:globalVars (program c') }
+                                             In (declareVarExtrn vn c') { program = newP, globalNames = vn:globalNames c' } -}
+                       NakedFunction n block -> do
+                              declareVarExtrn n
+                              updateCompiler $ \c -> let oldP = program c
+                                                         newProgram = oldP { nakedFunctions = newNF:nakedFunctions oldP }
+                                                         newNF = NFunction (name n) (nameLoc n) block
+                                                     in c { program = newProgram, globalNames = n:globalNames c }
 
 gProgram :: BProgram -> ([GenError], IRProgram)
 gProgram p = (errors c, program c)
-    where c = gCompile p
+    where (c,_) = runCompiler (initCompiler p >>= const (gCompile p)) emptyCompiler
 
-gCompile :: BProgram -> Compiler
-gCompile a = foldr gDefinition (initCompiler a) a
+gCompile :: BProgram -> Compiler ()
+gCompile = traverse_ gDefinition
 
-gDefinition :: BDefinition -> Compiler -> Compiler
+gDefinition :: BDefinition -> Compiler ()
 gDefinition (FDefinition name args block) = gFunction name args block
-gDefinition (GlobalVar n mc ivals) = id
-gDefinition (NakedFunction n block) = id
+gDefinition (GlobalVar n mc ivals) = pure ()
+gDefinition (NakedFunction n block) = pure ()
 
-gFunction :: BName -> [BName] -> BStatement -> Compiler -> Compiler
-gFunction bname args block c = emptyCompiler { program = newestProgram, errors = errors c', globalNames = globalNames c'}
-    where c' = foldl' (flip $ declareVarAuto . (, Nothing)) c args
-               & \x -> gStatement x block
+gFunction :: BName -> [BName] -> BStatement -> Compiler ()
+gFunction bname args block = do
+  traverse_ (declareVarAuto . (,Nothing)) args
+  gStatement block
+  cs <- getCompiler
+  let newFunc = Function (name bname)
+                (nameLoc bname)
+                (functionBody cs)
+                (fromIntegral $ length args)
+                (fromIntegral $ cAutoVarCountMax cs)
+  let newestProgram = let newProgram = program cs in newProgram { functions = newFunc:functions newProgram }
+  updateCompiler $ \c' -> emptyCompiler { program = newestProgram, errors = errors c', globalNames = globalNames c'}
 
-          newFunc = Function (name bname)
-                    (nameLoc bname)
-                    (functionBody c')
-                    (fromIntegral $ length args)
-                    (fromIntegral $ cAutoVarCountMax c')
+gStatement :: BStatement -> Compiler ()
+gStatement statement = case statement of
+                         Block   a            -> gBlock a
+                         Extrn   a            -> gExtrn a
+                         Auto    a            -> gAuto (map (\(x,y)->(x,fmap fromIntegral y)) a)
+                         While   cond st      -> gWhile cond st
+                         SRValue a            -> do
+                                        stackSize <- cAutoVarCount <$> getCompiler
+                                        gRValue a
+                                        updateCompiler $ \c -> c { cAutoVarCount = stackSize }
+                         IfElse  cond tst fst -> gIfElse cond tst fst
+                         BReturn (Just a)     -> do
+                                        rArg <- gRValue a
+                                        addOp (Return $ Just rArg)
+                         BReturn Nothing      -> addOp (Return Nothing)
+                         InlineAsm a          -> addOp (Asm a)
+                         Empty                -> pure ()
 
-          newestProgram = let newProgram = program c' in newProgram { functions = newFunc:functions newProgram }
+gBlock :: [BStatement] -> Compiler ()
+gBlock ss = do
+  stackSize <- cAutoVarCount <$> getCompiler
+  blockBegin
+  traverse_ gStatement ss
+  blockEnd
+  updateCompiler $ \c -> c { cAutoVarCount = stackSize }
 
-gStatement :: Compiler -> BStatement -> Compiler
-gStatement c statement = case statement of
-                               Block   a            -> gBlock c a
-                               Extrn   a            -> gExtrn c a
-                               Auto    a            -> gAuto c a
-                               While   cond st      -> gWhile c cond st
-                               SRValue a            -> let stackSize = cAutoVarCount c in gRValue c a & \(_,c') -> c' { cAutoVarCount = stackSize }
-                               IfElse  cond tst fst -> gIfElse c cond tst fst
-                               BReturn (Just a)     -> addOp newOp c'
-                                                           where (rArg, c') = gRValue c a
-                                                                 newOp = Return $ Just rArg
-                               BReturn Nothing      -> addOp (Return Nothing) c
-                               InlineAsm a          -> addOp (Asm a) c
-                               Empty                -> c
+gWhile :: BRValue -> BStatement -> Compiler ()
+gWhile cond st = do
+  label <- newLabel
+  addOp (Label label)
+  condArg <- gRValue cond
+  cs <- getCompiler
+  let (cs') = cs { functionBody = functionBody cs ++ [(JmpIfZeroLabel exitLabel condArg)] }
+      (cs'', ()) = runCompiler (gStatement st) cs'
+      exitLabel = functionLabelCount cs''
+      cs''' = cs'' { functionBody = functionBody cs'' ++ [(JmpLabel label), (Label exitLabel)], functionLabelCount = functionLabelCount cs'' + 1 }
+  setCompiler cs'''
 
-gBlock :: Compiler -> [BStatement] -> Compiler
-gBlock c ss = c'' { cAutoVarCount = autoVarC }
-    where c' = blockBegin c
-          autoVarC = cAutoVarCount c
-          c'' = c' & \x -> foldl' gStatement x ss & blockEnd (fromIntegral $ functionBlocksCount c)
-
-blockBegin :: Compiler -> Compiler
-blockBegin c = c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c }
-
-blockEnd :: Int -> Compiler -> Compiler
-blockEnd blockID c = c { vars = drop 1 $ vars c, functionBlocksCount = functionBlocksCount c - 1 }
-
-gExtrn :: Compiler -> [BName] -> Compiler
-gExtrn = foldr declareVarExtrn
-
-gAuto :: Compiler -> [(BName, Maybe Int)] -> Compiler
-gAuto = foldr declareVarAuto
-
-gRValue :: Compiler -> BRValue -> (Arg, Compiler)
-gRValue c rvalue = case rvalue of
-                     FunctionCall f args  -> gFunctionCall f args c
-                     Assignment l assOp r -> gAssignment c l assOp r
-                     RLValue a            -> gLValue c a
-                     RConstant a          -> gConstant c a
-                     Binary l op r        -> gBinary l op r c
-                     BracketRValue rv     -> gRValue c rv
-                     IncDecPost l op      -> gIncDec l op True c
-                     IncDecPre  op l      -> gIncDec l op False c
-                     RUnary op r          -> gUnary op r c
-                     Ternary cond t f     -> gTernary cond t f c
-
-gFunctionCall :: BRValue -> [BRValue] -> Compiler -> (Arg, Compiler)
-gFunctionCall functionLoc args c = (AutoVar autoVarOffset, addOp newOp c''')
-    where c' = allocateAutoVariable 1 c
-          (fLocArg, c'') = gRValue c' functionLoc
-          (fArgsArg, c''') = foldr (\a (as,x) -> let (na, nx) = gRValue x a in (na:as, nx)) ([], c'') args
-          autoVarOffset = fromIntegral $ cAutoVarCount c
-          newOp = Funcall autoVarOffset fLocArg fArgsArg
-
-gAssignment :: Compiler -> BLValue -> BAssign -> BRValue -> (Arg, Compiler)
-gAssignment c lValue Assign rValue = (lArg, addOp newOp c'')
-    where (rArg, c') = gRValue c rValue
-          (lArg, c'') = gLValue c' lValue
-          newOp = case lArg of
-                    External a -> ExternalAssign a rArg
-                    AutoVar a -> AutoAssign (fromIntegral a) rArg
-                    Deref a -> MemoryAssign a rArg
-gAssignment c lValue (BinaryAssign bop) rValue = (lArg, c''')
-    where (rArg, c') = gRValue c rValue
-          (lArg, c'') = gLValue c' lValue
-          c''' = case lArg of
-                    AutoVar a -> addOp (OpBin bop a lArg rArg) c''
-                    External a -> addOp (ExternalAssign a (AutoVar (cAutoVarCount c''))) $
-                                  addOp (OpBin bop (cAutoVarCount c'') lArg rArg)
-                                  (allocateAutoVariable 1 c'')
-
-gLValue :: Compiler -> BLValue -> (Arg, Compiler)
-gLValue c l = case l of
-                LName n -> let vf = find (\b->name n==name b) (globalNames c) in if isJust vf then (External (name n), c) else
-                           let v = findVar (name n) c in if isJust v
-                                                         then (case varStorage (fromJust v) of
-                                                                 StorageExternal s -> External s
-                                                                 StorageAuto i -> AutoVar (fromIntegral i), c)
-                                                         else (bogusArg, addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'") c)
-                Array ptr offset -> let (ptrArg, c') = gRValue c ptr
-                                        (offsetArg, c'') = gRValue c' offset
-                                    in (Deref (cAutoVarCount c''), addOp (Index (cAutoVarCount c'') ptrArg offsetArg) (allocateAutoVariable 1 c''))
-                Dereference i    -> let (derefArg, c') = gRValue c i
-                                    in case derefArg of
-                                         AutoVar a -> (Deref a, c')
-
-gConstant :: Compiler -> BConstant -> (Arg, Compiler)
-gConstant c constantValue = case constantValue of
-                              Digit a -> (Literal $ fromIntegral a, c)
-                              CharConst a -> (Literal $ fromIntegral $ ord a, c)
-                              Chars a -> (DataOffset dataLength, c { program = oldProgram { staticData = newStaticData } })
-                                  where oldProgram = program c
-                                        oldStaticData = staticData oldProgram
-                                        newStaticData = oldStaticData ++ fmap (fromIntegral . ord) a
-                                        dataLength = fromIntegral $ length oldStaticData
-
-gBinary :: BRValue -> BBinary -> BRValue -> Compiler -> (Arg, Compiler)
-gBinary l op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 c'')
-    where (lArg, c') = gRValue c l
-          (rArg, c'') = gRValue c' r
-          resultAutoVar = cAutoVarCount c''
-          newOp = OpBin op resultAutoVar lArg rArg
-
-gUnary :: BUnary -> BRValue -> Compiler -> (Arg, Compiler)
-gUnary op r c = (AutoVar resultAutoVar, addOp newOp $ allocateAutoVariable 1 c')
-    where (rArg, c') = gRValue c r
-          resultAutoVar = cAutoVarCount c'
-          newOp = (case op of
-                     Not -> UnaryNot
-                     Negative -> Negate
-                  ) resultAutoVar rArg
-
-gTernary :: BRValue -> BRValue -> BRValue -> Compiler -> (Arg, Compiler)
-gTernary cond t f c = (AutoVar (cAutoVarCount c' - 1), c''''')
-    where (condArg, c') = gRValue (allocateAutoVariable 1 c) cond
-          (tArg, c'') = gRValue (addOp (JmpIfZeroLabel (functionLabelCount c''') condArg) c') t
-          c''' = (\x -> (addOp (Label (functionLabelCount x)) x)) $ (addOp (JmpLabel (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) tArg) c'')
-          (fArg, c'''') = gRValue (newLabel (c''' { cAutoVarCount = cAutoVarCount c' })) f
-          c''''' = newLabel $ (addOp (Label (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) fArg) c'''')
-
-gIncDec :: BLValue -> BIncDec -> Bool -> Compiler -> (Arg, Compiler)
-gIncDec l op post c = if post
-                      then case op of
-                             Increment -> (AutoVar (cAutoVarCount c'), snd $ f Add l $ addOp (AutoAssign (cAutoVarCount c') varL) (allocateAutoVariable 1 c'))
-                             Decrement -> (AutoVar (cAutoVarCount c'), snd $ f Subtract l $ addOp (AutoAssign (cAutoVarCount c') varL) (allocateAutoVariable 1 c'))
-                      else case op of
-                             Increment -> f Add l c
-                             Decrement -> f Subtract l c
-    where (varL, c') = gLValue c l
-          f a loo coo = gAssignment coo loo (BinaryAssign a) (RConstant $ Digit 1)
-
-gWhile :: Compiler -> BRValue -> BStatement -> Compiler
-gWhile c cond st = newLabel $ addOp (Label (functionLabelCount c''')) c'''
-    where c' = newLabel $ addOp (Label (functionLabelCount c)) c
-          (arg, c'') = gRValue c' cond
-          newOp = JmpIfZeroLabel (functionLabelCount c''') arg
-          c''' = addOp (JmpLabel $ functionLabelCount c) $ gStatement (addOp newOp c'') st
-
+{-
 gIfElse :: Compiler -> BRValue -> BStatement -> Maybe BStatement -> Compiler
 gIfElse c cond tst Nothing = c''
     where (arg, c') = gRValue c cond
@@ -334,6 +274,125 @@ gIfElse c cond tst (Just fst) = newLabel (addOp (Label afterElseLabel) c''')
           c'' = addOp (JmpLabel afterElseLabel) $
                 gStatement (addOp (JmpIfZeroLabel elseLabel arg) c') tst
           c''' = gStatement (newLabel (addOp (Label elseLabel) c'')) fst
+-}
+
+
+gRValue :: BRValue -> Compiler Arg
+gRValue rvalue = case rvalue of
+                   FunctionCall f args  -> gFunctionCall f args
+                   Assignment l assOp r -> gAssignment l assOp r
+                   RLValue a            -> gLValue a
+                   RConstant a          -> gConstant a
+                   Binary l op r        -> gBinary l op r
+                   BracketRValue rv     -> gRValue rv
+                   IncDecPost l op      -> gIncDec l op True
+                   IncDecPre  op l      -> gIncDec l op False
+                   RUnary op r          -> gUnary op r
+                   -- Ternary cond t f     -> gTernary cond t f
+
+gFunctionCall :: BRValue -> [BRValue] -> Compiler Arg
+gFunctionCall functionLoc args = do
+  autoVarOffset <- allocateAutoVariable 1
+  fLoc <- gRValue functionLoc
+  fArgs <- traverse gRValue args
+  addOp (Funcall autoVarOffset fLoc fArgs)
+  return (AutoVar autoVarOffset)
+  
+gAssignment :: BLValue -> BAssign -> BRValue -> Compiler Arg
+gAssignment lValue assign rValue = do
+  rArg <- gRValue rValue
+  lArg <- gLValue lValue
+  case assign of
+    Assign -> do
+      addOp (case lArg of
+               External a -> ExternalAssign a rArg
+               AutoVar a -> AutoAssign (fromIntegral a) rArg
+               Deref a -> MemoryAssign a rArg)
+    BinaryAssign bop -> do
+                case lArg of
+                  AutoVar a -> addOp (OpBin bop a lArg rArg)
+                  External a -> do
+                            tempStorage <- allocateAutoVariable 1
+                            addOp (OpBin bop tempStorage lArg rArg)
+                            addOp (ExternalAssign a (AutoVar tempStorage))
+  return lArg
+
+wow = runCompiler ( do
+                    gLValue (LName (BName "wow" 22))) 
+      emptyCompiler { globalNames = [(BName "wow" 44)]}
+
+gLValue :: BLValue -> Compiler Arg
+gLValue l = case l of
+              LName n -> do
+                     vf <- find (\b -> name n == name b) . globalNames <$> getCompiler
+                     if isJust vf then return (External (name n))
+                     else do
+                       v <- findVar (name n)
+                       if isJust v then
+                           return $ case varStorage (fromJust v) of
+                                      StorageExternal s -> External s
+                                      StorageAuto i -> AutoVar i
+                       else bogusArg <$ addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'")
+              Array ptr offset -> do
+                     ptrArg <- gRValue ptr
+                     offsetArg <- gRValue offset
+                     arrayPtr <- allocateAutoVariable 1
+                     addOp (Index arrayPtr ptrArg offsetArg)
+                     return $ Deref arrayPtr
+              Dereference i -> do
+                     derefArg <- gRValue i
+                     return $ case derefArg of
+                                AutoVar a -> Deref a
+
+gConstant :: BConstant -> Compiler Arg
+gConstant constantValue = case constantValue of
+                              Digit a -> return $ Literal $ fromIntegral a
+                              CharConst a -> return $ Literal $ fromIntegral $ ord a
+                              Chars a -> do
+                                oldProgram <- program <$> getCompiler
+                                let oldStaticData = staticData oldProgram
+                                let dataLength = (fromIntegral . length) oldStaticData
+                                updateCompiler $ \c -> c { program = oldProgram { staticData = oldStaticData ++ fmap (fromIntegral . ord) a } }
+                                return (DataOffset dataLength)
+
+gBinary :: BRValue -> BBinary -> BRValue -> Compiler Arg
+gBinary l op r = do
+  lArg <- gRValue l
+  rArg <- gRValue r
+  resultAutoVar <- allocateAutoVariable 1
+  addOp (OpBin op resultAutoVar lArg rArg)
+  return $ AutoVar resultAutoVar
+
+gUnary :: BUnary -> BRValue -> Compiler Arg
+gUnary op r = do
+  rArg <- gRValue r
+  resultAutoVar <- allocateAutoVariable 1
+  addOp ((case op of
+           Not -> UnaryNot
+           Negative -> Negate) resultAutoVar rArg)
+  return $ AutoVar resultAutoVar
+
+{-
+gTernary :: BRValue -> BRValue -> BRValue -> Compiler -> (Arg, Compiler)
+gTernary cond t f c = (AutoVar (cAutoVarCount c' - 1), c''''')
+    where (condArg, c') = gRValue (allocateAutoVariable 1 c) cond
+          (tArg, c'') = gRValue (addOp (JmpIfZeroLabel (functionLabelCount c''') condArg) c') t
+          c''' = (\x -> (addOp (Label (functionLabelCount x)) x)) $ (addOp (JmpLabel (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) tArg) c'')
+          (fArg, c'''') = gRValue (newLabel (c''' { cAutoVarCount = cAutoVarCount c' })) f
+          c''''' = newLabel $ (addOp (Label (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) fArg) c'''')
+-}
+
+gIncDec :: BLValue -> BIncDec -> Bool -> Compiler Arg
+gIncDec l op post = do
+  lArg <- gLValue l
+  let o = case op of Increment -> Add
+                     Decrement -> Subtract
+  if post
+  then do
+    resultAutoVar <- allocateAutoVariable 1
+    addOp (AutoAssign resultAutoVar lArg)
+    gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
+  else gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
