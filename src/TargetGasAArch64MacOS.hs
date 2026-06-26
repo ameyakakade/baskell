@@ -46,7 +46,7 @@ aNakedFunctionSection :: NFunction -> String
 aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = ".global _" ++ nfName ++ "\n" ++
                                                          ".p2align 4\n" ++
                                                          "_" ++ nfName ++ ":\n" ++
-                                                         (unlines nfBlock)
+                                                         unlines nfBlock
 
 aFunction :: Function -> String
 aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++

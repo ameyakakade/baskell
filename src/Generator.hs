@@ -121,9 +121,8 @@ allocateAutoVariable sizeToAlloc = Compiler $ \c -> let count = cAutoVarCount c 
                                                             cAutoVarCountMax = max (cAutoVarCountMax c) count },
                                                          cAutoVarCount c)
 
-deallocateAutoVariable :: Int -> Compiler ()
-deallocateAutoVariable sizeToDealloc = updateCompiler $ \c -> let count = cAutoVarCount c - fromIntegral sizeToDealloc
-                                                              in c { cAutoVarCount = count }
+deallocateAutoVariable :: Word -> Compiler ()
+deallocateAutoVariable previousStackSize = updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
 
 addOp :: Op -> Compiler ()
 addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }

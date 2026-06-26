@@ -298,7 +298,7 @@ pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>=
                                 in case op of
                                      QuestionMark -> if minBP == 0
                                                      then do
-                                                       (t, restIn') <- runParser ((pratter True 0) <* bws <* charP ':') restIn
+                                                       (t, restIn') <- runParser (pratter True 0 <* bws <* charP ':') restIn
                                                        (f, restIn'') <- runParser (pratter True 0) restIn'
                                                        return (Ternary lhs t f, restIn'')
                                                      else Right (lhs, (c,i))
