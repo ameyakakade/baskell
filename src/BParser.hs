@@ -2,12 +2,12 @@ module BParser where
 
 import Parser
 
+import Control.Applicative
 import Data.Char
 import Data.Either
-import Data.Maybe
 import Data.Functor
 import Data.List
-import Control.Applicative
+import Data.Maybe
 
 type BProgram = [BDefinition]
 
@@ -189,7 +189,7 @@ selectBracketed sI eI n = Parser $ \input -> do
                             runParser ((if isLeft firstChar
                                        then replaceErr st
                                        else failureToError st) (selectBracketedE sI eI n)) input
-    where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair." 
+    where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair."
 
 selectBracketedE :: Char -> Char -> Int -> Parser String
 selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
@@ -384,7 +384,7 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
              <|> fmap BReturn (keywordParser "return" *> selSt (fmap Just bRValue))
              <|> fmap Switch (keywordParser "switch" *> bRValue) <*> bStatement
              <|> fmap Case (keywordParser "case" *> bConstant <* bws <* charP ':' <* bws) <*> bStatement
-             <|> fmap InlineAsm parseInlineAsm 
+             <|> fmap InlineAsm parseInlineAsm
              <|> ignoreErrorIndex (fmap BLabel bName <* bws <* charP ':' <* bws <*> bStatement)
              <|> Empty <$ bws <* charP ';'
              <|> fmap SRValue (selSt bRValueStrict)

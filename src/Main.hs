@@ -1,19 +1,19 @@
 module Main where
 
-import Parser
 import BParser
 import Generator
+import Parser
 import TargetGasAArch64MacOS
 
 import Control.Monad
-import System.Environment
-import System.Process
-import System.Directory
-import System.Exit
-import Data.Maybe
-import Data.List
 import Data.Foldable
+import Data.List
+import Data.Maybe
 import Data.Time.Clock
+import System.Directory
+import System.Environment
+import System.Exit
+import System.Process
 
 bd = ".baskellbuild/"
 
@@ -77,7 +77,7 @@ prettyProcess p = do
 runIfChanged :: Show a => Bool -> [FilePath] -> FilePath -> IO a -> IO Bool
 runIfChanged force fp out ting = do
   t <- getCurrentTime
-  cs <- traverse (checkChange out) fp 
+  cs <- traverse (checkChange out) fp
   if or cs || force
   then do
     putStrLn $ "Making " ++ out ++ " from " ++ intercalate ", " fp
@@ -116,6 +116,9 @@ compileFile dumpInfo fileName = do
                           putStrLn "\nIR:"
                           prettyier irp)
           let asmo = asm (snd irp)
+          when dumpInfo (do
+                putStrLn "\nASM:"
+                putStrLn asmo)
           if null (fst irp)
           then do
             writeFile (getFileName ".s" fileName) asmo
@@ -128,10 +131,6 @@ compileFile dumpInfo fileName = do
             putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
             putStrLn ""
             exitWith (ExitFailure 1)
-
-          when dumpInfo (do
-                putStrLn "\nASM:"
-                putStrLn asmo)
 
     (Left (Failure errors (loc, s))) -> do
                 putStrLn "Syntax failure"

@@ -1,10 +1,11 @@
 module TargetGasAArch64MacOS where
 
-import Generator
-import BParser (BBinary(..))
-import Data.Word
+import BParser    (BBinary (..))
+import Data.Bits
 import Data.List
 import Data.Maybe
+import Data.Word
+import Generator
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
@@ -61,7 +62,7 @@ aFunctionPrologue name countParam countAutoVars = "\n.global _" ++ name ++ "\n" 
                                                   "SUB SP, SP, #" ++ show stackOffset ++ "\n" ++
                                                   "MOV FP, SP\n" ++
                                                   if countParam==0 then []
-                                                  else concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)]) 
+                                                  else concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)])
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
 
@@ -90,7 +91,7 @@ loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
 
 aOp :: String -> Word -> Word -> Op -> String
 aOp funName countParam countAutoVars o = case o of
-          Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++ 
+          Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++
                                          fl fnLoc ++ "\n" ++
                                          storeVarOnStack 0 offset
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
@@ -107,7 +108,7 @@ aOp funName countParam countAutoVars o = case o of
                                          storeVarOnStack 0 dest
           Label labelN -> funName ++ show labelN ++ ":"
           JmpLabel labelN -> "B " ++ funName ++ show labelN
-          JmpIfZeroLabel labelN arg -> aArg 0 arg ++ 
+          JmpIfZeroLabel labelN arg -> aArg 0 arg ++
                                       "CMP X0, #0\n" ++
                                       "B.EQ " ++ funName ++ show labelN
           Return Nothing -> aFunctionEpilogue countParam countAutoVars
@@ -122,14 +123,22 @@ aOp funName countParam countAutoVars o = case o of
                              storeVarOnStack 0 dest
           Asm a -> unlines a
     where fl (External s) = "BL _" ++ s
-          fl a = aArg 16 a ++ "\n" ++ "BLR X16"
+          fl a            = aArg 16 a ++ "\n" ++ "BLR X16"
 
 aArg :: Word -> Arg -> String
 aArg reg arg = case arg of
              DataOffset doff -> "ADRP " ++ "X" ++ show reg ++ ", .dat@PAGE" ++ "\n" ++
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", .dat@PAGEOFF\n" ++
                                 "ADD " ++ "X" ++ show reg ++ ", X" ++ show reg ++ ", #" ++ show doff ++ "\n"
-             Literal a -> "MOV X" ++ show reg ++ ", #" ++ show a ++ "\n"
+             Literal a -> let b1 = a .&. 0xFFFF
+                              b2 = shiftR a 16 .&. 0xFFFF
+                              b3 = shiftR a (16*2) .&. 0xFFFF
+                              b4 = shiftR a (16*3) .&. 0xFFFF
+                          in "MOV X" ++ show reg ++ ", #" ++ show b1 ++ "\n" ++
+                             (if b2 == 0 then "" else "MOVK X" ++ show reg ++ ", #" ++ show b2 ++ ", LSL 16\n" ++
+                             if b3 == 0 then "" else "MOVK X" ++ show reg ++ ", #" ++ show b3 ++ ", LSL 32\n" ++
+                             if b4 == 0 then "" else "MOVK X" ++ show reg ++ ", #" ++ show b4 ++ ", LSL 48\n")
+
              AutoVar autoVarOffset -> loadVarInStack reg autoVarOffset
              Deref autoVarOffset -> loadVarInMem reg autoVarOffset
              External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++

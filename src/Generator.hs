@@ -353,7 +353,7 @@ gConstant constantValue = case constantValue of
                                 oldProgram <- program <$> getCompiler
                                 let oldStaticData = staticData oldProgram
                                 let dataLength = (fromIntegral . length) oldStaticData
-                                updateCompiler $ \c -> c { program = oldProgram { staticData = oldStaticData ++ fmap (fromIntegral . ord) a } }
+                                updateCompiler $ \c -> c { program = oldProgram { staticData = oldStaticData ++ fmap (fromIntegral . ord) a ++ [0] } }
                                 return (DataOffset dataLength)
 
 gBinary :: BRValue -> BBinary -> BRValue -> Compiler Arg
