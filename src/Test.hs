@@ -1,17 +1,17 @@
 -- This contains minimal json parser and other utils for running test suite
 
 module Main where
+import Generator           (prettyier)
 import Parser
-import Generator(prettyier)
 
 import Control.Applicative
 import Control.Monad
 import Data.Either
-import Data.Maybe
 import Data.List
+import Data.Maybe
 import System.Directory
-import System.Process
 import System.Exit
+import System.Process
 
 data JsonValue = JsonNull
                | JsonObject [(String, JsonValue)]
@@ -24,13 +24,13 @@ main = do
   when (isLeft json)
            (do
              error "Error in JSON.")
-          
+
   let (Right (JsonArray jsonTree, _)) = json
   let filteredJsonTree = filter
                          (\(JsonObject maps) -> let Just (_,JsonString target) = find (\(s,_) -> s=="target") maps
                                                 in target=="gas-aarch64-darwin")
                          jsonTree
-                         
+
   -- prettyier filteredJsonTree
   doesFileExist "./baskell" >>= (\x -> when x (error "Compiler executable not found.")) . not
   setCurrentDirectory "../thirdparty/tests/"
@@ -42,7 +42,7 @@ main = do
   putStrLn $ "Disabled: " ++ show (length $ filter (==3) ls)
   return ()
 
-testCase :: JsonValue -> IO Int 
+testCase :: JsonValue -> IO Int
 testCase (JsonObject maps) = do
   putStrLn ""
   let caseName = getJsonValue "case"
@@ -114,12 +114,12 @@ escapedStringP predicate = Parser f
                          else a
       | otherwise   = Right ([], (c, x:xs))
     escapedChars c = case c of
-                       '"' -> Just '\"'
+                       '"'  -> Just '\"'
                        '\\' -> Just '\\'
-                       '/' -> Just '/'
-                       'b' -> Just '\b'
-                       'f' -> Just '\f'
-                       'n' -> Just '\n'
-                       'r' -> Just '\r'
-                       't' -> Just '\t'
-                       a   -> Nothing
+                       '/'  -> Just '/'
+                       'b'  -> Just '\b'
+                       'f'  -> Just '\f'
+                       'n'  -> Just '\n'
+                       'r'  -> Just '\r'
+                       't'  -> Just '\t'
+                       a    -> Nothing
