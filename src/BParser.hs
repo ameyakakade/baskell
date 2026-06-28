@@ -431,3 +431,5 @@ bProgram = repeatedParser (bws *> bDefinition <* bws)
 --       generator. It still is difficult to turn off C-like one line comments
 
 -- TODO: Block that contains only auto or extrn without following statement should fail
+
+-- TODO: Implement variadics

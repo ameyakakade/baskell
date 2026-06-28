@@ -32,7 +32,7 @@ main = do
                          jsonTree
 
   -- prettyier filteredJsonTree
-  doesFileExist "./baskell" >>= (\x -> when x (error "Compiler executable not found.")) . not
+  doesFileExist "../build/baskell" >>= (\x -> when x (error "Compiler executable not found.")) . not
   setCurrentDirectory "../thirdparty/tests/"
   ls <- traverse testCase filteredJsonTree
   putStrLn ""
@@ -55,7 +55,7 @@ testCase (JsonObject maps) = do
   else do
     let comment = getJsonValue "comment"
     unless (null comment) $ putStrLn $ "Comment: " ++ comment
-    (exit, stdout, stderr) <- readProcessWithExitCode "../../src/baskell" [fileName, "-B"] ""
+    (exit, stdout, stderr) <- readProcessWithExitCode "../../build/baskell" [fileName, "-B"] ""
     fe <- doesFileExist caseName
     if exit==ExitSuccess && fe
     then do

@@ -1,11 +1,11 @@
 assert_equal(actual, expected, message) {
-    extrn printf, abort;
-    printf("%s: ", message);
+    extrn printf2, abort; // TODO: Change back to printf when variadics works
+    printf2("%s: ", message);
     if (actual != expected) {
-        printf("FAIL*n");
+        printf2("FAIL*n");
         abort();
     } else {
-        printf("OK*n");
+        printf2("OK*n");
     }
 }
 

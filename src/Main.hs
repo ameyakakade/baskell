@@ -32,9 +32,7 @@ main :: IO ()
 main = do
   args <- getArgs
 
-  let compilerDir = "/Users/ameya/Documents/Programming/baskell/src/"
-
-  let std = compilerDir ++ "write.o"
+  let std = "/Users/ameya/Documents/Programming/baskell/build/" ++ "write.o"
   let newC = False
 
   let nC = isJust $ find (=="-B") args
