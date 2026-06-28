@@ -3,7 +3,8 @@ module Main where
 import BParser
 import Generator
 import Parser
-import TargetGasAArch64MacOS
+import Codegen.GasDarwinAArch64
+import Codegen
 
 import Control.Monad
 import Data.Foldable
@@ -113,7 +114,7 @@ compileFile dumpInfo fileName = do
           when dumpInfo (do
                           putStrLn "\nIR:"
                           prettyier irp)
-          let asmo = asm (snd irp)
+          let asmo = (output gasDarwinAArch64) (snd irp)
           when dumpInfo (do
                 putStrLn "\nASM:"
                 putStrLn asmo)

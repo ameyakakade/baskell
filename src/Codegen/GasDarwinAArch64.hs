@@ -1,11 +1,14 @@
-module TargetGasAArch64MacOS where
+module Codegen.GasDarwinAArch64(gasDarwinAArch64) where
+import Codegen.Common
 
-import BParser    (BBinary (..))
+import BParser        (BBinary (..))
 import Data.Bits
 import Data.List
 import Data.Maybe
 import Data.Word
 import Generator
+
+gasDarwinAArch64 = Codegen "gasDarwinAArch64" False asm
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++

@@ -20,10 +20,7 @@ There is decent error reporting, the compiler can keep on compiling and accumula
 This part of the compiler is to be rewritten to make it easy to add new targets. Right now the only target is MacOS gas AArch64.
 
 #### How to use
-Install GHC (Glasglow haskell compiler), start up GHCi (repl of haskell) or compile using ghc the "Main.hs" file. Call the 
-function "compileFile" from repl or provide filename to executable of a valid(and simple) B program and it will spit out a
-"as.s" file. Assemble this file and link appropriately (i wrote write and exit functions in c for the hello world example. 
-should work with non variadic libc functions.)
+Do "runhaskell Build.hs" to compile the compiler and test utility. The binaries will be in the build folder.
 
 Orignal reference manual for B: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/kbman.html
 
