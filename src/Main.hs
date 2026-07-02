@@ -114,7 +114,7 @@ compileFile dumpInfo fileName = do
           when dumpInfo (do
                           putStrLn "\nIR:"
                           prettyier irp)
-          let asmo = (output gasDarwinAArch64) (snd irp)
+          let asmo = output gasDarwinAArch64 (snd irp)
           when dumpInfo (do
                 putStrLn "\nASM:"
                 putStrLn asmo)

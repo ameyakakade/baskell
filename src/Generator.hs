@@ -371,28 +371,19 @@ gUnary op r = do
   return $ AutoVar resultAutoVar
 
 gTernary :: BRValue -> BRValue -> BRValue -> Compiler Arg
-gTernary cond t f = do
+gTernary cond t f = mdo
   resultAutoVar <- allocateAutoVariable 1
   condArg <- gRValue cond
+  addOp (JmpIfZeroLabel falseLabel condArg)
+  tArg <- gRValue t
+  addOp (AutoAssign resultAutoVar tArg)
+  addOp (JmpLabel exitFalseLabel)
+  falseLabel <- newLabel
+  fArg <- gRValue f
+  addOp (AutoAssign resultAutoVar fArg)
+  exitFalseLabel <- newLabel
   cs <- getCompiler
-  let cs1 = cs { functionBody = functionBody cs ++ [JmpIfZeroLabel falseLabel condArg] }
-      (cs2, tArg) = runCompiler (gRValue t) cs1
-      falseLabel = functionLabelCount cs2
-      cs3 = cs2 { functionBody = functionBody cs2 ++ [AutoAssign resultAutoVar tArg, JmpLabel exitFalseLabel, Label falseLabel], functionLabelCount = functionLabelCount cs2 + 1 }
-      (cs4, fArg) = runCompiler (gRValue f) cs3
-      exitFalseLabel = functionLabelCount cs4
-      cs5 = cs4 { functionBody = functionBody cs4 ++ [AutoAssign resultAutoVar fArg, Label exitFalseLabel], functionLabelCount = functionLabelCount cs4 + 1 }
-  setCompiler cs5
   return (AutoVar resultAutoVar)
-
-{-
-gTernary cond t f c = (AutoVar (cAutoVarCount c' - 1), c''''')
-    where (condArg, c') = gRValue (allocateAutoVariable 1 c) cond
-          (tArg, c'') = gRValue (addOp (JmpIfZeroLabel (functionLabelCount c''') condArg) c') t
-          c''' = (\x -> (addOp (Label (functionLabelCount x)) x)) $ (addOp (JmpLabel (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) tArg) c'')
-          (fArg, c'''') = gRValue (newLabel (c''' { cAutoVarCount = cAutoVarCount c' })) f
-          c''''' = newLabel $ (addOp (Label (functionLabelCount c''''))) $ (addOp (AutoAssign (cAutoVarCount c' - 1) fArg) c'''')
--}
 
 gIncDec :: BLValue -> BIncDec -> Bool -> Compiler Arg
 gIncDec l op post = do

@@ -4,7 +4,7 @@ import Generator
 
 data Target = Target { targetName :: String, optimization :: Bool, output :: IRProgram -> String }
 
-data CodegenM a b = CodegenM { runCodegenM :: a -> (a, b) } deriving (Functor)
+newtype CodegenM a b = CodegenM { runCodegenM :: a -> (a, b) } deriving (Functor)
 
 instance Applicative (CodegenM a) where
     pure a = CodegenM (,a)
