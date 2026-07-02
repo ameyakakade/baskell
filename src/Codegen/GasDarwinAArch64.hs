@@ -8,7 +8,7 @@ import Data.Maybe
 import Data.Word
 import Generator
 
-gasDarwinAArch64 = Codegen "gasDarwinAArch64" False asm
+gasDarwinAArch64 = Target "gasDarwinAArch64" False asm
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++

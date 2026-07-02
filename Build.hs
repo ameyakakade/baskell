@@ -17,8 +17,16 @@ main = do
     $ logProcess
     $ readProcessWithExitCode "cc" ["-c", "src/write.c", "-o", "build/write.o"] ""
 
+  args <- getArgs
+  if args==["-test"]
+    then do
+    setCurrentDirectory "thirdparty/"
+    let bt = proc "../build/btest" []
+    readProcess "../build/btest" [] "" >>= putStr
+    else return ()
+
 logProcess p = do
-  (e,so,se) <- p
+  ~(e,so,se) <- p
   putStr so
   putStr se
 
