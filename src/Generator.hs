@@ -1,9 +1,11 @@
+{-# LANGUAGE RecursiveDo #-}
 -- this will generate IR code from AST.
 
 module Generator where
 
 import BParser
 import Control.Applicative
+import Control.Monad.Fix
 import Data.Char
 import Data.Foldable
 import Data.Function
@@ -101,6 +103,10 @@ instance Monad Compiler where
     x >>= y = Compiler $ \c -> let (cs, input) = runCompiler x c
                                in runCompiler (y input) cs
 
+instance MonadFix Compiler where
+  mfix f = Compiler $ \c -> let (cs, a) = runCompiler (f a) c
+                            in (cs, a)
+
 setCompiler :: CompilerState -> Compiler ()
 setCompiler cs = Compiler $ const (cs,())
 
@@ -113,9 +119,10 @@ updateCompiler f = Compiler $ \c -> (f c,())
 emptyCompiler = CompilerState (IRProgram [] [] [] [] []) [] [[]] [] [] 0 0 0 0
 
 newLabel :: Compiler Word
-newLabel = Compiler $ \c -> (c { functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
+newLabel = Compiler $ \c -> (c { functionBody = functionBody c ++ [Label (functionLabelCount c)], functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
 
 allocateAutoVariable :: Word -> Compiler Word
+
 allocateAutoVariable sizeToAlloc = Compiler $ \c -> let count = cAutoVarCount c + sizeToAlloc
                                                     in (c { cAutoVarCount = count,
                                                             cAutoVarCountMax = max (cAutoVarCountMax c) count },
@@ -245,38 +252,32 @@ gBlock ss = do
   updateCompiler $ \c -> c { cAutoVarCount = stackSize }
 
 gWhile :: BRValue -> BStatement -> Compiler ()
-gWhile cond st = do
+gWhile cond st = mdo
   label <- newLabel
-  addOp (Label label)
   condArg <- gRValue cond
-  cs <- getCompiler
-  let cs' = cs { functionBody = functionBody cs ++ [JmpIfZeroLabel exitLabel condArg] }
-      (cs'', ()) = runCompiler (gStatement st) cs'
-      exitLabel = functionLabelCount cs''
-      cs''' = cs'' { functionBody = functionBody cs'' ++ [JmpLabel label, Label exitLabel], functionLabelCount = functionLabelCount cs'' + 1 }
-  setCompiler cs'''
+  addOp (JmpIfZeroLabel exitLabel condArg)
+  gStatement st
+  addOp (JmpLabel label)
+  exitLabel <- newLabel
+  return ()
 
 gIfElse :: BRValue -> BStatement -> Maybe BStatement -> Compiler ()
-gIfElse cond tst Nothing = do
+gIfElse cond tst Nothing = mdo
   condArg <- gRValue cond
-  cs <- getCompiler
-  let cs' = cs { functionBody = functionBody cs ++ [JmpIfZeroLabel exitLabel condArg] }
-      (cs'', ()) = runCompiler (gStatement tst) cs'
-      exitLabel = functionLabelCount cs''
-      cs''' = cs'' { functionBody = functionBody cs'' ++ [Label exitLabel] ,functionLabelCount = functionLabelCount cs'' + 1 }
-  setCompiler cs'''
+  addOp (JmpIfZeroLabel exitLabel condArg)
+  gStatement tst
+  exitLabel <- newLabel
+  return ()
 
-gIfElse cond tst (Just fst) = do
+gIfElse cond tst (Just fst) = mdo
   condArg <- gRValue cond
-  cs <- getCompiler
-  let cs1 = cs { functionBody = functionBody cs ++ [JmpIfZeroLabel enterElseLabel condArg] }
-      (cs2, ()) = runCompiler (gStatement tst) cs1
-      enterElseLabel = functionLabelCount cs2
-      cs3 = cs2 { functionBody = functionBody cs2 ++ [JmpLabel exitAfterElseLabel, Label enterElseLabel] ,functionLabelCount = functionLabelCount cs2 + 1 }
-      (cs4, ()) = runCompiler (gStatement fst) cs3
-      exitAfterElseLabel = functionLabelCount cs4
-      cs5 = cs4 { functionBody = functionBody cs4 ++ [Label exitAfterElseLabel] ,functionLabelCount = functionLabelCount cs4 + 1 }
-  setCompiler cs5
+  addOp (JmpIfZeroLabel enterElseLabel condArg)
+  gStatement tst
+  addOp (JmpLabel exitAfterElseLabel)
+  enterElseLabel <- newLabel
+  gStatement fst
+  exitAfterElseLabel <- newLabel
+  return ()
 
 gRValue :: BRValue -> Compiler Arg
 gRValue rvalue = case rvalue of
@@ -317,10 +318,6 @@ gAssignment lValue assign rValue = do
                             addOp (OpBin bop tempStorage lArg rArg)
                             addOp (ExternalAssign a (AutoVar tempStorage))
   return lArg
-
-wow = runCompiler ( do
-                    gLValue (LName (BName "wow" 22)))
-      emptyCompiler { globalNames = [BName "wow" 44]}
 
 gLValue :: BLValue -> Compiler Arg
 gLValue l = case l of
