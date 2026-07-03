@@ -1,0 +1,169 @@
+-- Fasm target for x86
+module Codegen.Fasm(fasm, asm) where
+import Codegen.Common
+
+import BParser        (BBinary (..))
+import Data.Bits
+import Data.List
+import Data.Maybe
+import Data.Word
+import Generator
+
+fasm = Target "fasm" False asm
+
+asm :: IRProgram -> String
+asm p = aProgramPrologue ++ "\n" ++
+        concatMap (\x -> "extrn " ++ x ++ "\n") (extrns p) ++ "\n" ++
+        concatMap aFunction (functions p) ++ "\n" ++
+        aGlobalVarSection (globalVars p) ++ "\n" ++
+        concatMap aNakedFunctionSection (nakedFunctions p) ++ "\n" ++
+        aDataSection (staticData p)
+
+aProgramPrologue :: String
+aProgramPrologue = "format ELF64"
+
+aDataSection :: [Word8] -> String
+aDataSection a = "dat db " ++ intercalate "," (map show a)
+
+aGlobalVarSection :: [(String, Maybe Int, [Arg])] -> String
+aGlobalVarSection = concatMap (\(s, ms, args) ->
+                                     if isNothing ms
+                                     then aGlobalVar s args
+                                     else aGlobalVector s (fromJust ms) args
+                                )
+
+aGlobalVar :: String -> [Arg] -> String
+aGlobalVar vName initData = ".data\n" ++
+                            ".global _" ++ vName ++ "\n" ++
+                            ".p2align 3 // investigate why this is needed\n"++
+                            "_" ++ vName ++ ":\n" ++
+                            if null initData then ".quad 0"
+                            else concatMap (\a -> ".quad " ++ aGlobalVarArg a ++ "\n") initData
+
+aGlobalVector :: String -> Int -> [Arg] -> String
+aGlobalVector vName vSize initData = undefined
+
+aGlobalVarArg :: Arg -> String
+aGlobalVarArg (External a)   = "_" ++ a
+aGlobalVarArg (Literal a)    = show a
+aGlobalVarArg (DataOffset a) = ".dat +" ++ show a
+
+aNakedFunctionSection :: NFunction -> String
+aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = ".global _" ++ nfName ++ "\n" ++
+                                                         ".p2align 4\n" ++
+                                                         "_" ++ nfName ++ ":\n" ++
+                                                         unlines nfBlock
+
+aFunction :: Function -> String
+aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
+              concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
+              aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
+
+aFunctionPrologue :: String -> Word -> Word -> String
+aFunctionPrologue name countParam countAutoVars = "\npublic " ++ name ++ "\n" ++
+                                                  name ++ ":\n" ++
+                                                  "push rbp\n" ++ -- pushing frame pointer to stack
+                                                  "sub rsp, " ++ show stackOffset ++ "\n" ++
+                                                  "mov rbp, rsp\n" ++
+                                                  if countParam==0 then []
+                                                  else "UNREACHABLE"
+                                                  -- else concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)])
+    where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
+          ccc = (countParam + countAutoVars)*8
+
+aFunctionEpilogue :: Word -> Word -> String
+aFunctionEpilogue countParam countAutoVars = "add rsp, " ++ show stackOffset ++ "\n" ++
+                                             "pop rbp\n" ++
+                                             "ret\n"
+    where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
+          ccc = (countParam + countAutoVars)*8
+
+storeVarOnStack :: String -> Word -> String
+storeVarOnStack reg offset = "mov [rbp + " ++ show (offset*8) ++ "], " ++ reg ++ "\n"
+
+loadVarInStack :: Word -> Word -> String
+loadVarInStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
+
+storeVarInMem :: Word -> Word -> String
+storeVarInMem reg ptrOffset = loadVarInStack (reg+1) ptrOffset ++
+                              "STR X" ++ show reg ++ ", [X" ++ show (reg+1) ++ ", #0]"
+                              ++ "\n; storing variable in memory"
+
+loadVarInMem :: Word -> Word -> String
+loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
+                                 "LDR X0, [X" ++ show destReg ++ ", #0]\n"
+                                 ++ "\n; loading variable in memory\n"
+
+aOp :: String -> Word -> Word -> Op -> String
+aOp funName countParam countAutoVars o = case o of
+          Funcall offset fnLoc fnArgs -> concat (zipWith aArg ["rdi", "rsi", "rdx", "rcs", "r8", "r9"] fnArgs) ++
+                                         fl fnLoc ++ "\n" ++
+                                         storeVarOnStack "rax" offset
+          OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
+          AutoAssign loc arg -> aArg "UNREACHABLE" arg ++ storeVarOnStack "UNREACHABLE" loc
+          MemoryAssign ptrLoc arg -> aArg "UNREACHABLE" arg ++ storeVarInMem 0 ptrLoc
+          ExternalAssign loc arg -> aArg "UNREACHABLE" arg ++
+                                    "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
+                                    "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
+                                    "STR X0, [X1, #0]\n"
+          Index dest ptsArg offsetArg -> aArg "UNREACHABLE" ptsArg ++ aArg "UNREACHABLE" offsetArg ++
+                                         "MOV X3, #8\n" ++
+                                         "MUL X2, X2, X3\n" ++
+                                         "ADD X0, X1, X2\n" ++
+                                         storeVarOnStack "UNREACHABLE" dest
+          Label labelN -> funName ++ show labelN ++ ":"
+          JmpLabel labelN -> "B " ++ funName ++ show labelN
+          JmpIfZeroLabel labelN arg -> aArg "UNREACHABLE" arg ++
+                                      "CMP X0, #0\n" ++
+                                      "B.EQ " ++ funName ++ show labelN
+          Return Nothing -> aFunctionEpilogue countParam countAutoVars
+          Return (Just arg) -> aArg "UNREACHABLE" arg ++
+                               aFunctionEpilogue countParam countAutoVars
+          UnaryNot dest arg -> aArg "UNREACHABLE" arg ++
+                               "CMP X0, #0\n" ++
+                               "CSET X0, EQ\n" ++
+                               storeVarOnStack "UNREACHABLE" dest
+          Negate dest arg -> aArg "UNREACHABLE" arg ++
+                             "NEG X0, X0\n" ++
+                             storeVarOnStack "UNREACHABLE" dest
+          Asm a -> unlines a
+    where fl (External s) = "call " ++ s
+          fl a            = aArg "UNREACHABLE" a ++ "\n" ++ "BLR X16"
+
+aArg :: String -> Arg -> String
+aArg reg arg = case arg of
+             DataOffset doff -> "mov " ++ reg ++ ", dat" ++ "\n" ++
+                                "add " ++ reg ++ ", " ++ show doff ++ "\n"
+             Literal a -> "mov " ++ reg ++ ", " ++ show a ++ "\n"
+             AutoVar autoVarOffset -> loadVarInStack 0 autoVarOffset
+             Deref autoVarOffset -> loadVarInMem 0 autoVarOffset
+             External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
+                              "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n" ++
+                              "LDR X" ++ show reg ++ ", [X" ++ show reg ++ "]\n"
+
+aBinary :: BinOp -> Word -> Arg -> Arg -> String
+aBinary binOp resultLoc lArg rArg = aArg "UNREACHABLE" lArg ++
+                                    aArg "UNREACHABLE" rArg ++
+                                    (case binOp of
+                                      Add             -> "ADD X0, X1, X2\n"
+                                      Subtract        -> "SUB X0, X1, X2\n"
+                                      Multiply        -> "MUL X0, X1, X2\n"
+                                      Equal           -> "CMP X1, X2\n" ++
+                                                         "CSET X0, EQ\n"
+                                      NotEqual        -> "CMP X1, X2\n" ++
+                                                         "CSET X0, NE\n"
+                                      LessThan        -> "CMP X1, X2\n" ++
+                                                         "CSET X0, LT\n"
+                                      MoreThan        -> "CMP X1, X2\n" ++
+                                                         "CSET X0, GT\n"
+                                      LessThanOrEqual -> "CMP X1, X2\n" ++
+                                                         "CSET X0, LE\n"
+                                      MoreThanOrEqual -> "CMP X1, X2\n" ++
+                                                         "CSET X0, GE\n"
+                                      Modulo          -> "SDIV X0, X1, X2\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
+                                                         "MSUB X0, X0, X2, X1\n"  -- which is q then we do (q*b -a) which is mod
+                                      Or              -> "ORR X0, X1, X2\n"
+                                      Divide          -> "SDIV X0, X1, X2\n" --
+                                    ) ++
+                                    storeVarOnStack "UNREACHABLE" resultLoc
+
