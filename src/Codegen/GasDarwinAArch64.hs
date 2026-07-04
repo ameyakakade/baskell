@@ -8,7 +8,7 @@ import Data.Maybe
 import Data.Word
 import Generator
 
-gasDarwinAArch64 = Target "gasDarwinAArch64" False asm
+gasDarwinAArch64 = Target "gasDarwinAArch64" False (\p -> return $ asm p)
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
@@ -125,8 +125,8 @@ aOp funName countParam countAutoVars o = case o of
                              "NEG X0, X0\n" ++
                              storeVarOnStack 0 dest
           Asm a -> unlines a
-    where fl (External s) = "BL _" ++ s
-          fl a            = aArg 16 a ++ "\n" ++ "BLR X16"
+  where fl (External s) = "BL _" ++ s
+        fl a            = aArg 16 a ++ "\n" ++ "BLR X16"
 
 aArg :: Word -> Arg -> String
 aArg reg arg = case arg of

@@ -3,6 +3,7 @@ module Main where
 import BParser
 import Generator
 import Parser
+import Codegen.GasAArch64
 import Codegen.GasDarwinAArch64
 import Codegen
 
@@ -114,7 +115,7 @@ compileFile dumpInfo fileName = do
           when dumpInfo (do
                           putStrLn "\nIR:"
                           prettyier irp)
-          let asmo = output gasDarwinAArch64 (snd irp)
+          asmo <- output gasAArch64 (snd irp)
           when dumpInfo (do
                 putStrLn "\nASM:"
                 putStrLn asmo)
