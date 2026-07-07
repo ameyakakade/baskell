@@ -23,5 +23,3 @@ This part of the compiler is to be rewritten to make it easy to add new targets.
 Do "runhaskell Build.hs" to compile the compiler and test utility. The binaries will be in the build folder.
 
 Orignal reference manual for B: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/kbman.html
-
-No AI was used to write this project.
