@@ -218,9 +218,12 @@ aArg arg = do
                  r <- getEmptyRegister
                  loadVarInMem r autoVarReg
                  return r
-             -- External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
-                              -- "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n" ++
-                              -- "LDR X" ++ show reg ++ ", [X" ++ show reg ++ "]\n"
+             External name -> do
+                 r <- getEmptyRegister
+                 append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]\n"
+                 return r
 
 loadArgIntoReg :: Word -> Arg -> RegCodegen ()
 loadArgIntoReg r arg = case arg of
@@ -239,8 +242,11 @@ loadArgIntoReg r arg = case arg of
                          AutoVar autoVarOffset -> loadVarInStack r autoVarOffset
                          Deref autoVarOffset -> do
                              ptrR <- aArg (AutoVar autoVarOffset)
-                             r <- getEmptyRegister
                              loadVarInMem r ptrR
+                         External name -> do
+                             append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                             append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+                             append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
                                          
 aOp :: String -> Int -> Int -> Op -> RegCodegen ()
 aOp funName countParam countAutoVars o = case o of
@@ -261,7 +267,8 @@ aOp funName countParam countAutoVars o = case o of
                   addRegisterCache (AutoVar loc) r
           MemoryAssign ptrLoc arg -> do
               argR <- aArg arg
-              storeVarInMem 0 ptrLoc
+              ptrR <- aArg (AutoVar ptrLoc)
+              storeVarInMem argR ptrR
           ExternalAssign loc arg -> do
               argR <- aArg arg
               r <- getEmptyRegister
@@ -275,17 +282,10 @@ aOp funName countParam countAutoVars o = case o of
               append $ "MOV X" ++ show tempR ++ ", #8"
               append $ "MUL X" ++ show tempR ++ ", X" ++ show offsetR ++ ", X" ++ show tempR
               append $ "ADD X" ++ show tempR ++ ", X" ++ show ptrR ++ ", X" ++ show tempR
-
               maybeInRegister <- findArgInRegisters (AutoVar dest)
               if isJust maybeInRegister
                 then append $ "MOV X" ++ show (fromJust maybeInRegister) ++ ", X" ++ show tempR
                 else addRegisterCache (AutoVar dest) tempR
-
-          -- Index dest ptsArg offsetArg -> aArg 1 ptsArg ++ aArg 2 offsetArg ++
-          --                                "MOV X3, #8\n" ++
-          --                                "MUL X2, X2, X3\n" ++
-          --                                "ADD X0, X1, X2\n" ++
-          --                                storeVarOnStack 0 dest
           Label labelN -> do
               saveRegisters
               append $ funName ++ show labelN ++ ":"

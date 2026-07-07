@@ -21,8 +21,7 @@ main = do
   if args==["-test"]
     then do
     setCurrentDirectory "thirdparty/"
-    let bt = proc "../build/btest" []
-    readProcess "../build/btest" [] "" >>= putStr
+    readProcess "../build/btest" ["gasAArch64"] "" >>= putStr
     else return ()
 
 logProcess p = do

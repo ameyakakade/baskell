@@ -1949,8 +1949,8 @@
         "case": "out_of_order_funcalls",
         "target": "gas-aarch64-darwin",
         "expected_stdout": "No forward declaration is required\n",
-        "state": "Disabled",
-        "comment": "Causes infinite loop"
+        "state": "Enabled",
+        "comment": ""
     },
     {
         "case": "out_of_order_funcalls",
@@ -2153,14 +2153,21 @@
         "case": "asm_gas_aarch64_darwin",
         "target": "gas-aarch64-darwin",
         "expected_stdout": "3\n",
-        "state": "Disabled",
-        "comment": "Infinite loop"
+        "state": "Enabled",
+        "comment": ""
     },
     {
         "case": "asm_func_gas_aarch64_darwin",
         "target": "gas-aarch64-darwin",
         "expected_stdout": "69\n",
-        "state": "Disabled",
-        "comment": "Infinite loops"
+        "state": "Enabled",
+        "comment": ""
+    },
+    {
+        "case": "nestedfuncs",
+        "target": "gas-aarch64-darwin",
+        "expected_stdout": "Another one\nAnother one\nAnother one\nAnother one\nAnother one\nAnother one\n",
+        "state": "Enabled",
+        "comment": ""
     }
 ]
