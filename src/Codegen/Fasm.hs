@@ -59,7 +59,7 @@ aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ 
               concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
               aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
-aFunctionPrologue :: String -> Word -> Word -> String
+aFunctionPrologue :: String -> Int -> Int -> String
 aFunctionPrologue name countParam countAutoVars = "\npublic " ++ name ++ "\n" ++
                                                   name ++ ":\n" ++
                                                   "push rbp\n" ++ -- pushing frame pointer to stack
@@ -71,7 +71,7 @@ aFunctionPrologue name countParam countAutoVars = "\npublic " ++ name ++ "\n" ++
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
 
-aFunctionEpilogue :: Word -> Word -> String
+aFunctionEpilogue :: Int -> Int -> String
 aFunctionEpilogue countParam countAutoVars = "add rsp, " ++ show stackOffset ++ "\n" ++
                                              "pop rbp\n" ++
                                              "ret\n"
@@ -94,7 +94,7 @@ loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
                                  "LDR X0, [X" ++ show destReg ++ ", #0]\n"
                                  ++ "\n; loading variable in memory\n"
 
-aOp :: String -> Word -> Word -> Op -> String
+aOp :: String -> Int -> Int -> Op -> String
 aOp funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> concat (zipWith aArg ["rdi", "rsi", "rdx", "rcs", "r8", "r9"] fnArgs) ++
                                          fl fnLoc ++ "\n" ++

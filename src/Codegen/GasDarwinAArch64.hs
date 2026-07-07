@@ -57,49 +57,48 @@ aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ 
               concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
               aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
-aFunctionPrologue :: String -> Word -> Word -> String
+aFunctionPrologue :: String -> Int -> Int -> String
 aFunctionPrologue name countParam countAutoVars = "\n.global _" ++ name ++ "\n" ++
                                                   ".p2align 4\n" ++
                                                   "_" ++ name ++ ":\n" ++
                                                   "STP LR, FP, [SP, #-16]!\n" ++
                                                   "SUB SP, SP, #" ++ show stackOffset ++ "\n" ++
                                                   "MOV FP, SP\n" ++
-                                                  if countParam==0 then []
-                                                  else concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)])
+                                                  concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)])
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
 
-aFunctionEpilogue :: Word -> Word -> String
+aFunctionEpilogue :: Int -> Int -> String
 aFunctionEpilogue countParam countAutoVars = "ADD SP, SP, #" ++ show stackOffset ++ "\n" ++
                                              "LDP LR, FP, [SP], #16\n" ++
                                              "RET\n"
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
 
-storeVarOnStack :: Word -> Word -> String
+storeVarOnStack :: Int -> Int -> String
 storeVarOnStack reg offset = "STR " ++ "X" ++ show reg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
-loadVarInStack :: Word -> Word -> String
+loadVarInStack :: Int -> Int -> String
 loadVarInStack destReg offset = "LDR " ++ "X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]\n"
 
-storeVarInMem :: Word -> Word -> String
+storeVarInMem :: Int -> Int -> String
 storeVarInMem reg ptrOffset = loadVarInStack (reg+1) ptrOffset ++
                               "STR X" ++ show reg ++ ", [X" ++ show (reg+1) ++ ", #0]"
                               ++ "\n; storing variable in memory"
 
-loadVarInMem :: Word -> Word -> String
+loadVarInMem :: Int -> Int -> String
 loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
                                  "LDR X0, [X" ++ show destReg ++ ", #0]\n"
                                  ++ "\n; loading variable in memory\n"
 
-aOp :: String -> Word -> Word -> Op -> String
+aOp :: String -> Int -> Int -> Op -> String
 aOp funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++
                                          fl fnLoc ++ "\n" ++
-                                         storeVarOnStack 0 offset
+                                         storeVarOnStack 0 (fromIntegral offset)
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
-          AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 loc
-          MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 ptrLoc
+          AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 (fromIntegral loc)
+          MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 (fromIntegral ptrLoc)
           ExternalAssign loc arg -> aArg 0 arg ++
                                     "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
                                     "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
@@ -108,7 +107,7 @@ aOp funName countParam countAutoVars o = case o of
                                          "MOV X3, #8\n" ++
                                          "MUL X2, X2, X3\n" ++
                                          "ADD X0, X1, X2\n" ++
-                                         storeVarOnStack 0 dest
+                                         storeVarOnStack 0 (fromIntegral dest)
           Label labelN -> funName ++ show labelN ++ ":"
           JmpLabel labelN -> "B " ++ funName ++ show labelN
           JmpIfZeroLabel labelN arg -> aArg 0 arg ++
@@ -120,10 +119,10 @@ aOp funName countParam countAutoVars o = case o of
           UnaryNot dest arg -> aArg 0 arg ++
                                "CMP X0, #0\n" ++
                                "CSET X0, EQ\n" ++
-                               storeVarOnStack 0 dest
+                               storeVarOnStack 0 (fromIntegral dest)
           Negate dest arg -> aArg 0 arg ++
                              "NEG X0, X0\n" ++
-                             storeVarOnStack 0 dest
+                             storeVarOnStack 0 (fromIntegral dest)
           Asm a -> unlines a
   where fl (External s) = "BL _" ++ s
         fl a            = aArg 16 a ++ "\n" ++ "BLR X16"
@@ -142,8 +141,8 @@ aArg reg arg = case arg of
                              if b3 == 0 then "" else "MOVK X" ++ show reg ++ ", #" ++ show b3 ++ ", LSL 32\n" ++
                              if b4 == 0 then "" else "MOVK X" ++ show reg ++ ", #" ++ show b4 ++ ", LSL 48\n")
 
-             AutoVar autoVarOffset -> loadVarInStack reg autoVarOffset
-             Deref autoVarOffset -> loadVarInMem reg autoVarOffset
+             AutoVar autoVarOffset -> loadVarInStack (fromIntegral reg) (fromIntegral autoVarOffset)
+             Deref autoVarOffset -> loadVarInMem (fromIntegral reg) (fromIntegral autoVarOffset)
              External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
                               "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n" ++
                               "LDR X" ++ show reg ++ ", [X" ++ show reg ++ "]\n"
@@ -172,4 +171,4 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                       Or              -> "ORR X0, X1, X2\n"
                                       Divide          -> "SDIV X0, X1, X2\n" --
                                     ) ++
-                                    storeVarOnStack 0 resultLoc
+                                    storeVarOnStack 0 (fromIntegral resultLoc)

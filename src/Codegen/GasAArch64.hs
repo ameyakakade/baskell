@@ -14,7 +14,7 @@ data State = State {
     asmOutput           :: [String],
     count               :: Word,
     registerStates      :: [(Word, Arg, Word)], -- Register, arg, age
-    firstTouchToAutoVar :: [Word], -- list of auto vars not yet initialized
+    firstTouchToAutoVar :: [Int], -- list of auto vars not yet initialized
     codegenLog :: [String]
     } deriving (Show)
 
@@ -43,12 +43,15 @@ gasAArch64 = Target "gasAArch64" False asm
 asm :: IRProgram -> IO String
 asm p = do
     let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [])
-    print $ count s
-    print $ registerStates s
-    print $ firstTouchToAutoVar s
-    putStrLn "---"
-    putStr $ unlines $ codegenLog s
-    putStrLn "---"
+    if False
+      then do
+        print $ count s
+        print $ registerStates s
+        print $ firstTouchToAutoVar s
+        putStrLn "---"
+        putStr $ unlines $ codegenLog s
+        putStrLn "---"
+      else return ()
     return $ unlines $ asmOutput $ s
 
 generateAsm :: IRProgram -> RegCodegen ()
@@ -103,7 +106,7 @@ aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = do
     append $ "_" ++ nfName ++ ":"
     append $  unlines nfBlock
 
-storeVarOnStack :: Word -> Word -> RegCodegen ()
+storeVarOnStack :: Int -> Int -> RegCodegen ()
 storeVarOnStack reg offset = append $ "STR X" ++ show reg ++ ", [FP, #" ++ show (offset*8) ++ "]"
 
 loadVarInStack :: Word -> Word -> RegCodegen ()
@@ -115,9 +118,8 @@ storeVarInMem reg ptrReg = do
     append "; storing variable in memory"
 
 loadVarInMem :: Word -> Word -> RegCodegen ()
-loadVarInMem destReg ptrOffset = do
-    loadVarInStack destReg ptrOffset
-    append $ "LDR X0, [X" ++ show destReg ++ ", #0]"
+loadVarInMem destReg ptrReg = do
+    append $ "LDR X" ++ show destReg ++ ", [X" ++ show ptrReg ++ ", #0]"
     append "; loading variable in memory"
 
 saveRegisters :: RegCodegen ()
@@ -128,7 +130,7 @@ saveRegisters = do
 
 saveOneRegister :: (Word, Arg, Word) -> RegCodegen ()
 saveOneRegister (register, arg, age) = case arg of
-                                         AutoVar offset -> storeVarOnStack register offset
+                                         AutoVar offset -> storeVarOnStack (fromIntegral register) (fromIntegral offset)
                                          _ -> return ()
 
 findArgInRegisters :: Arg -> RegCodegen (Maybe Word)
@@ -151,10 +153,10 @@ addRegisterCache arg register = updateState $ \s -> s { registerStates = (regist
 isVarTouched :: Word -> RegCodegen Bool
 isVarTouched autoVar = do
     s <- getState
-    let untouched = elem autoVar (firstTouchToAutoVar s)
+    let untouched = elem (fromIntegral autoVar) (firstTouchToAutoVar s)
     if untouched
       then do
-        updateState $ \s -> s { firstTouchToAutoVar = delete autoVar (firstTouchToAutoVar s) }
+        updateState $ \s -> s { firstTouchToAutoVar = delete (fromIntegral autoVar) (firstTouchToAutoVar s) }
         return False
       else return True
 
@@ -163,10 +165,11 @@ aFunction f = do
     aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f)
     updateState $ \s -> s { registerStates = [], firstTouchToAutoVar = [(paramsCount f)..(paramsCount f + autoVarCount f - 1)] }
     traverse (aOp (funName f) (paramsCount f) (autoVarCount f)) (body f)
+    aFunctionEpilogue (paramsCount f) (autoVarCount f)
     append ""
     return ()
 
-aFunctionPrologue :: String -> Word -> Word -> RegCodegen ()
+aFunctionPrologue :: String -> Int -> Int -> RegCodegen ()
 aFunctionPrologue name countParam countAutoVars = do
     append $ ".global _" ++ name
     append $ ".p2align 4"
@@ -180,7 +183,7 @@ aFunctionPrologue name countParam countAutoVars = do
       where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
             ccc = (countParam + countAutoVars)*8
 
-aFunctionEpilogue :: Word -> Word -> RegCodegen ()
+aFunctionEpilogue :: Int -> Int -> RegCodegen ()
 aFunctionEpilogue countParam countAutoVars = do
     append $ "ADD SP, SP, #" ++ show stackOffset
     append $ "LDP LR, FP, [SP], #16"
@@ -236,13 +239,13 @@ loadArgIntoReg r arg = case arg of
                          AutoVar autoVarOffset -> loadVarInStack r autoVarOffset
                          Deref autoVarOffset -> undefined 
                                          
-aOp :: String -> Word -> Word -> Op -> RegCodegen ()
+aOp :: String -> Int -> Int -> Op -> RegCodegen ()
 aOp funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> do
               saveRegisters
               zipWithM_ loadArgIntoReg [0..] fnArgs
               fl fnLoc
-              addRegisterCache (AutoVar offset) 0 
+              addRegisterCache (AutoVar offset) 0
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> do
               argR <- aArg arg
@@ -296,22 +299,22 @@ aBinary binOp loc lArg rArg = do
               Add             -> "ADD X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
               Subtract        -> "SUB X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
               Multiply        -> "MUL X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
-              Equal           -> "CMP X" ++ show argL ++ ", " ++ show argR ++ "\n" ++
+              Equal           -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
                                  "CSET X" ++ show r ++ ", EQ\n"
-              NotEqual        -> "CMP X" ++ show argL ++ ", " ++ show argR ++ "\n" ++
+              NotEqual        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
                                  "CSET X" ++ show r ++ ", NE\n"
-              LessThan        -> "CMP X" ++ show argL ++ ", " ++ show argR ++ "\n" ++
+              LessThan        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
                                  "CSET X" ++ show r ++ ", LT\n"
-              MoreThan        -> "CMP X" ++ show argL ++ ", " ++ show argR ++ "\n" ++
+              MoreThan        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
                                  "CSET X" ++ show r ++ ", GT\n"
-              LessThanOrEqual -> "CMP X" ++ show argL ++ ", " ++ show argR ++ "\n" ++
+              LessThanOrEqual -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
                                  "CSET X" ++ show r ++ ", LE\n"
-              MoreThanOrEqual -> "CMP X" ++ show argL ++ ", " ++ show argR ++ "\n" ++
+              MoreThanOrEqual -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
                                  "CSET X" ++ show r ++ ", GE\n"
               Modulo          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
                                  "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL ++ "\n"  -- which is q then we do (q*b -a) which is mod
-              Or              -> "ORR X" ++ show r ++ ", " ++ show argL ++ ", " ++ show argR ++ "\n"
-              Divide          -> "SDIV X" ++ show r ++ ", " ++ show argL ++ ", " ++ show argR ++ "\n" --
+              Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
+              Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" --
 
   maybeInRegister <- findArgInRegisters (AutoVar loc)
   if isJust maybeInRegister

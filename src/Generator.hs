@@ -52,8 +52,8 @@ data Function = Function {
       funName      :: String,
       funLoc       :: Int,
       body         :: [Op],
-      paramsCount  :: Word,
-      autoVarCount :: Word
+      paramsCount  :: Int,
+      autoVarCount :: Int
     } deriving (Eq, Show)
 
 data NFunction = NFunction {
