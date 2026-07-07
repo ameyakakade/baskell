@@ -10,6 +10,7 @@ import Data.Either
 import Data.List
 import Data.Maybe
 import System.Directory
+import System.Environment
 import System.Exit
 import System.Process
 
@@ -20,6 +21,7 @@ data JsonValue = JsonNull
                  deriving (Show, Eq)
 
 main = do
+  [target] <- getArgs
   json <- startParser jsonValue <$> readFile "../thirdparty/tests.json"
   when (isLeft json)
            (do
@@ -34,7 +36,7 @@ main = do
   -- prettyier filteredJsonTree
   doesFileExist "../build/baskell" >>= (\x -> when x (error "Compiler executable not found.")) . not
   setCurrentDirectory "../thirdparty/tests/"
-  ls <- traverse testCase filteredJsonTree
+  ls <- traverse (testCase target) filteredJsonTree
   putStrLn ""
   putStrLn $ "Passed:   " ++ show (length $ filter (==0) ls)
   putStrLn $ "Failed:   " ++ show (length $ filter (==2) ls)
@@ -42,8 +44,8 @@ main = do
   putStrLn $ "Disabled: " ++ show (length $ filter (==3) ls)
   return ()
 
-testCase :: JsonValue -> IO Int
-testCase (JsonObject maps) = do
+testCase :: String -> JsonValue -> IO Int
+testCase target (JsonObject maps) = do
   putStrLn ""
   let caseName = getJsonValue "case"
   let fileName = caseName ++ ".b"
@@ -55,7 +57,7 @@ testCase (JsonObject maps) = do
   else do
     let comment = getJsonValue "comment"
     unless (null comment) $ putStrLn $ "Comment: " ++ comment
-    (exit, stdout, stderr) <- readProcessWithExitCode "../../build/baskell" [fileName, "-B"] ""
+    (exit, stdout, stderr) <- readProcessWithExitCode "../../build/baskell" [fileName, "-B", "-T"++target] ""
     fe <- doesFileExist caseName
     if exit==ExitSuccess && fe
     then do

@@ -38,6 +38,11 @@ main = do
   let newC = False
 
   let nC = isJust $ find (=="-B") args
+  let targetName = let a = fmap (drop 2) $ find (isPrefixOf "-T") args
+                   in if isJust a
+                      then fromJust a
+                      else "gasDarwinAArch64"
+  let (Just target) = find (\(Target s _ _) -> s == targetName) targets
   let sourceFiles = filter (isSuffixOf ".b") args
   objectFiles <- traverse makeAbsolute $ filter (\x -> isSuffixOf ".o" x || isSuffixOf ".a" x) args
   let linkerFlags = drop 1 $ dropWhile (/="-L") args
@@ -54,7 +59,7 @@ main = do
          traverse_ (\fileName -> do
                     runIfChanged nC [fileName]
                                      (getFileName ".s" fileName)
-                                     (compileFile False fileName)
+                                     (compileFile target False fileName)
 
                     runIfChanged nC [getFileName ".s" fileName]
                                      (getFileName ".o" fileName)
@@ -98,8 +103,8 @@ checkChange out fp = do
     return $ d > 0
   else return True
 
-compileFile :: Bool -> String -> IO ()
-compileFile dumpInfo fileName = do
+compileFile :: Target -> Bool -> String -> IO ()
+compileFile target dumpInfo fileName = do
   a <- readFile fileName
   let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
   let parsed = startParser bProgram a
@@ -115,7 +120,7 @@ compileFile dumpInfo fileName = do
           when dumpInfo (do
                           putStrLn "\nIR:"
                           prettyier irp)
-          asmo <- output gasAArch64 (snd irp)
+          asmo <- output target (snd irp)
           when dumpInfo (do
                 putStrLn "\nASM:"
                 putStrLn asmo)

@@ -237,7 +237,10 @@ loadArgIntoReg r arg = case arg of
                                            if b3 == 0 then "" else "MOVK X" ++ show r ++ ", #" ++ show b3 ++ ", LSL 32\n" ++
                                            if b4 == 0 then "" else "MOVK X" ++ show r ++ ", #" ++ show b4 ++ ", LSL 48\n")
                          AutoVar autoVarOffset -> loadVarInStack r autoVarOffset
-                         Deref autoVarOffset -> undefined 
+                         Deref autoVarOffset -> do
+                             ptrR <- aArg (AutoVar autoVarOffset)
+                             r <- getEmptyRegister
+                             loadVarInMem r ptrR
                                          
 aOp :: String -> Int -> Int -> Op -> RegCodegen ()
 aOp funName countParam countAutoVars o = case o of
@@ -256,26 +259,51 @@ aOp funName countParam countAutoVars o = case o of
                   r <- getEmptyRegister
                   append $ "MOV X" ++ show r ++ ", X" ++ show argR
                   addRegisterCache (AutoVar loc) r
-          -- MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 ptrLoc
-          -- ExternalAssign loc arg -> aArg 0 arg ++
-          --                           "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
-          --                           "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
-          --                           "STR X0, [X1, #0]\n"
+          MemoryAssign ptrLoc arg -> do
+              argR <- aArg arg
+              storeVarInMem 0 ptrLoc
+          ExternalAssign loc arg -> do
+              argR <- aArg arg
+              r <- getEmptyRegister
+              append $ "ADRP X" ++ show r ++ ", _" ++ loc ++ "@GOTPAGE"
+              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ loc ++ "@GOTPAGEOFF]"
+              append $ "STR X" ++ show argR ++ ", [X" ++ show r ++ ", #0]\n"
+          Index dest ptsArg offsetArg -> do
+              ptrR <- aArg ptsArg
+              offsetR <- aArg offsetArg
+              tempR <- getEmptyRegister
+              append $ "MOV X" ++ show tempR ++ ", #8"
+              append $ "MUL X" ++ show tempR ++ ", X" ++ show offsetR ++ ", X" ++ show tempR
+              append $ "ADD X" ++ show tempR ++ ", X" ++ show ptrR ++ ", X" ++ show tempR
+
+              maybeInRegister <- findArgInRegisters (AutoVar dest)
+              if isJust maybeInRegister
+                then append $ "MOV X" ++ show (fromJust maybeInRegister) ++ ", X" ++ show tempR
+                else addRegisterCache (AutoVar dest) tempR
+
           -- Index dest ptsArg offsetArg -> aArg 1 ptsArg ++ aArg 2 offsetArg ++
           --                                "MOV X3, #8\n" ++
           --                                "MUL X2, X2, X3\n" ++
           --                                "ADD X0, X1, X2\n" ++
           --                                storeVarOnStack 0 dest
-          -- Label labelN -> funName ++ show labelN ++ ":"
-          -- JmpLabel labelN -> "B " ++ funName ++ show labelN
-          -- JmpIfZeroLabel labelN arg -> aArg 0 arg ++
-          --                             "CMP X0, #0\n" ++
-          --                             "B.EQ " ++ funName ++ show labelN
-          -- Return Nothing -> aFunctionEpilogue countParam countAutoVars
-          -- Return (Just arg) -> aArg 0 arg ++
-          --                      aFunctionEpilogue countParam countAutoVars
+          Label labelN -> do
+              saveRegisters
+              append $ funName ++ show labelN ++ ":"
+          JmpLabel labelN -> do
+              saveRegisters
+              append $ "B " ++ funName ++ show labelN
+          JmpIfZeroLabel labelN arg -> do
+              condR <- aArg arg
+              append $ "CMP X" ++ show condR ++ ", #0"
+              saveRegisters
+              append $ "B.EQ " ++ funName ++ show labelN
+          Return Nothing -> aFunctionEpilogue countParam countAutoVars
+          Return (Just arg) -> do
+              loadArgIntoReg 0 arg
+              aFunctionEpilogue countParam countAutoVars
           -- UnaryNot dest arg -> aArg 0 arg ++
           --                      "CMP X0, #0\n" ++
+          --                      "CSET X0, EQ\n" ++
           --                      "CSET X0, EQ\n" ++
           --                      storeVarOnStack 0 dest
           -- Negate dest arg -> aArg 0 arg ++
