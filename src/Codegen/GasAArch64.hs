@@ -305,14 +305,16 @@ aOp funName countParam countAutoVars o = case o of
               saveRegisters
               loadArgIntoReg 0 arg
               aFunctionEpilogue countParam countAutoVars
-          -- UnaryNot dest arg -> aArg 0 arg ++
-          --                      "CMP X0, #0\n" ++
-          --                      "CSET X0, EQ\n" ++
-          --                      "CSET X0, EQ\n" ++
-          --                      storeVarOnStack 0 dest
-          -- Negate dest arg -> aArg 0 arg ++
-          --                    "NEG X0, X0\n" ++
-          --                    storeVarOnStack 0 dest
+          UnaryNot dest arg -> do
+              r <- aArg arg
+              append $ "CMP X" ++ show r ++ ", #0"
+              append $ "CSET X" ++ show r ++ ", EQ"
+              append $ "CSET X" ++ show r ++ ", EQ"
+              addRegisterCache (AutoVar dest) r
+          Negate dest arg -> do
+              r <- aArg arg
+              append $ "NEG X" ++ show r ++ ", X" ++ show r
+              addRegisterCache (AutoVar dest) r
           Asm a -> do
               saveRegisters
               traverse append a
