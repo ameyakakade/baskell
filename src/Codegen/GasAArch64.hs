@@ -140,12 +140,14 @@ findArgInRegisters arg = do
 
 getEmptyRegister :: RegCodegen Word
 getEmptyRegister = do
-    s <- getState
-    let l = length (registerStates s)
+    s <- fmap registerStates getState
+    let l = length (s)
     if l >= 16
       then do
         undefined
-      else return $ fromIntegral l
+      else do
+        let availableRegisters = [x | x<-[0..16], not $ elem x (map (\(x, _, _) -> x) s)]
+        return $ head availableRegisters
 
 addRegisterCache :: Arg -> Word -> RegCodegen ()
 addRegisterCache arg register = updateState $ \s -> s { registerStates = (register, arg, (count s)):(registerStates s) }
@@ -223,6 +225,7 @@ aArg arg = do
                  append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]\n"
+                 addRegisterCache arg r
                  return r
 
 loadArgIntoReg :: Word -> Arg -> RegCodegen ()
@@ -322,7 +325,13 @@ aBinary :: BinOp -> Word -> Arg -> Arg -> RegCodegen ()
 aBinary binOp loc lArg rArg = do
   argL <- aArg lArg
   argR <- aArg rArg
-  r <- getEmptyRegister
+  maybeInRegister <- findArgInRegisters (AutoVar loc)
+  r <- if isJust maybeInRegister
+       then return $ fromJust maybeInRegister
+       else do
+          r <- getEmptyRegister
+          addRegisterCache (AutoVar loc) r
+          return r
   append $ case binOp of
               Add             -> "ADD X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
               Subtract        -> "SUB X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
@@ -344,10 +353,4 @@ aBinary binOp loc lArg rArg = do
               Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
               Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" --
 
-  maybeInRegister <- findArgInRegisters (AutoVar loc)
-  if isJust maybeInRegister
-    then append $ "MOV X" ++ show (fromJust maybeInRegister) ++ ", X" ++ show r
-    else do
-      r <- getEmptyRegister
-      append $ "MOV X" ++ show r ++ ", X" ++ show r
-      addRegisterCache (AutoVar loc) r
+-- TODO: mandelbrot set example does not work properly. probably has to do with globals vars or smth idk
