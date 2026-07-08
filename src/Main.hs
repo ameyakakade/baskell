@@ -38,7 +38,7 @@ main = do
   let newC = False
 
   let nC = isJust $ find (=="-B") args
-  let targetName = let a = fmap (drop 2) $ find (isPrefixOf "-T") args
+  let targetName = let a = drop 2 <$> find (isPrefixOf "-T") args
                    in if isJust a
                       then fromJust a
                       else "gasDarwinAArch64"

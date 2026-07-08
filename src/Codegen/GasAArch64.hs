@@ -23,7 +23,7 @@ type RegCodegen = StateM State
 addCount :: RegCodegen ()
 addCount = StateM $ \s -> (s { count = count s + 1, codegenLog = codegenLog s ++
                                ("Count: " ++ show (count s) ++ "\t" ++
-                                (let a = show (registerStates s) in "Reg " ++ a ++ (replicate (135 - length a) ' ')) ++ "\t" ++
+                                (let a = show (registerStates s) in "Reg " ++ a ++ replicate (135 - length a) ' ') ++ "\t" ++
                                 (let a = asmOutput s in if null a then "" else last a)):[]},())
 
 setState :: State -> RegCodegen ()
@@ -52,7 +52,7 @@ asm p = do
         putStr $ unlines $ codegenLog s
         putStrLn "---"
       else return ()
-    return $ unlines $ asmOutput $ s
+    return $ unlines $ asmOutput s
 
 generateAsm :: IRProgram -> RegCodegen ()
 generateAsm p = do
@@ -77,9 +77,9 @@ aGlobalVarSection l = do
 
 aGlobalVar :: String -> [Arg] -> RegCodegen ()
 aGlobalVar vName initData = do
-    append $ ".data"
+    append   ".data"
     append $ ".global _" ++ vName
-    append $ ".p2align 3 // investigate why this is needed"
+    append   ".p2align 3 // investigate why this is needed"
     append $ "_" ++ vName ++ ":"
     let as = if null initData
              then [".quad 0"]
@@ -102,7 +102,7 @@ aGlobalVarArg (DataOffset a) = ".dat +" ++ show a
 aNakedFunctionSection :: NFunction -> RegCodegen ()
 aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = do
     append $  ".global _" ++ nfName
-    append $  ".p2align 4"
+    append    ".p2align 4"
     append $ "_" ++ nfName ++ ":"
     append $  unlines nfBlock
 
@@ -136,26 +136,26 @@ saveOneRegister (register, arg, age) = case arg of
 findArgInRegisters :: Arg -> RegCodegen (Maybe Word)
 findArgInRegisters arg = do
     s <- getState
-    return $ fmap (\(a,_,_) -> a) $ find (\(_,a,_) -> a==arg) (registerStates s)
+    return $ (\(a,_,_) -> a) <$> find (\(_,a,_) -> a==arg) (registerStates s)
 
 getEmptyRegister :: RegCodegen Word
 getEmptyRegister = do
     s <- fmap registerStates getState
-    let l = length (s)
+    let l = length s
     if l >= 16
       then do
         undefined
       else do
-        let availableRegisters = [x | x<-[0..16], not $ elem x (map (\(x, _, _) -> x) s)]
+        let availableRegisters = [x | x<-[0..16], x `notElem` map (\(x, _, _) -> x) s]
         return $ head availableRegisters
 
 addRegisterCache :: Arg -> Word -> RegCodegen ()
-addRegisterCache arg register = updateState $ \s -> s { registerStates = (register, arg, (count s)):(registerStates s) }
+addRegisterCache arg register = updateState $ \s -> s { registerStates = (register, arg, count s):registerStates s }
 
 isVarTouched :: Word -> RegCodegen Bool
 isVarTouched autoVar = do
     s <- getState
-    let untouched = elem (fromIntegral autoVar) (firstTouchToAutoVar s)
+    let untouched = fromIntegral autoVar `elem` firstTouchToAutoVar s
     if untouched
       then do
         updateState $ \s -> s { firstTouchToAutoVar = delete (fromIntegral autoVar) (firstTouchToAutoVar s) }
@@ -302,6 +302,7 @@ aOp funName countParam countAutoVars o = case o of
               append $ "B.EQ " ++ funName ++ show labelN
           Return Nothing -> aFunctionEpilogue countParam countAutoVars
           Return (Just arg) -> do
+              saveRegisters
               loadArgIntoReg 0 arg
               aFunctionEpilogue countParam countAutoVars
           -- UnaryNot dest arg -> aArg 0 arg ++
@@ -326,12 +327,11 @@ aBinary binOp loc lArg rArg = do
   argL <- aArg lArg
   argR <- aArg rArg
   maybeInRegister <- findArgInRegisters (AutoVar loc)
-  r <- if isJust maybeInRegister
-       then return $ fromJust maybeInRegister
-       else do
-          r <- getEmptyRegister
-          addRegisterCache (AutoVar loc) r
-          return r
+  r <- maybe
+       (do r' <- getEmptyRegister
+           addRegisterCache (AutoVar loc) r'
+           return r')
+       return maybeInRegister
   append $ case binOp of
               Add             -> "ADD X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
               Subtract        -> "SUB X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"

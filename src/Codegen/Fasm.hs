@@ -9,7 +9,7 @@ import Data.Maybe
 import Data.Word
 import Generator
 
-fasm = Target "fasm" False (\p -> return $ asm p)
+fasm = Target "fasm" False $ return . asm
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++

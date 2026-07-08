@@ -8,7 +8,7 @@ import Data.Maybe
 import Data.Word
 import Generator
 
-gasDarwinAArch64 = Target "gasDarwinAArch64" False (\p -> return $ asm p)
+gasDarwinAArch64 = Target "gasDarwinAArch64" False $ return . asm
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
