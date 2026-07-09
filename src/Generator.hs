@@ -71,7 +71,8 @@ data IRProgram = IRProgram {
       nakedFunctions :: [NFunction],
       staticData     :: [Word8],
       globalVars     :: [(String, Maybe Int, [Arg])],
-      extrns         :: [String]
+      extrns         :: [String],
+      variadics      :: [(String, Int)]
     } deriving (Eq, Show)
 
 data GenError = GenError {
@@ -94,6 +95,8 @@ data CompilerState = CompilerState {
       cAutoVarCount       :: Word,
       cAutoVarCountMax    :: Word
     } deriving (Eq, Show)
+
+emptyCompiler = CompilerState (IRProgram [] [] [] [] [] []) [] [[]] [] [] 0 0 0 0
 
 newtype Compiler a = Compiler { runCompiler :: CompilerState -> (CompilerState, a) } deriving (Functor)
 
@@ -119,8 +122,6 @@ getCompiler = Compiler $ \cs -> (cs,cs)
 
 updateCompiler :: (CompilerState -> CompilerState) -> Compiler ()
 updateCompiler f = Compiler $ \c -> (f c,())
-
-emptyCompiler = CompilerState (IRProgram [] [] [] [] []) [] [[]] [] [] 0 0 0 0
 
 newLabel :: Compiler Word
 newLabel = Compiler $ \c -> (c { functionBody = functionBody c ++ [Label (functionLabelCount c)], functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
@@ -207,7 +208,11 @@ initCompiler = traverse_ folder
                                                          newProgram = oldP { nakedFunctions = newNF:nakedFunctions oldP }
                                                          newNF = NFunction (name n) (nameLoc n) block
                                                      in c { program = newProgram, globalNames = n:globalNames c }
-
+                       VariadicFunction n minArgs -> do
+                           updateCompiler $ \c -> let oldP = program c
+                                                      newProgram = oldP { variadics = (name n, minArgs):variadics oldP }
+                                                  in c { program = newProgram }
+ 
 gProgram :: BProgram -> ([GenError], IRProgram)
 gProgram p = (errors c, program c)
     where (c,_) = runCompiler (initCompiler p >>= const (gCompile p)) emptyCompiler
@@ -217,8 +222,9 @@ gCompile = traverse_ gDefinition
 
 gDefinition :: BDefinition -> Compiler ()
 gDefinition (FDefinition name args block) = gFunction name args block
-gDefinition (GlobalVar n mc ivals)        = pure ()
-gDefinition (NakedFunction n block)       = pure ()
+gDefinition (GlobalVar _ _ _)            = pure ()
+gDefinition (NakedFunction _ _)          = pure ()
+gDefinition (VariadicFunction _ _ )      = pure ()
 
 gFunction :: BName -> [BName] -> BStatement -> Compiler ()
 gFunction bname args block = do

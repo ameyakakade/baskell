@@ -11,9 +11,10 @@ import Data.Maybe
 
 type BProgram = [BDefinition]
 
-data BDefinition = FDefinition {fName :: BName, fArgs :: [BName], fStatement :: BStatement}
-                 | GlobalVar {vName :: BName, vSize :: Maybe Int, vInit :: [BIVal]}
-                 | NakedFunction {nfName :: BName, nfAsm :: [String]}
+data BDefinition = FDefinition { fName :: BName, fArgs :: [BName], fStatement :: BStatement }
+                 | GlobalVar { vName :: BName, vSize :: Maybe Int, vInit :: [BIVal] }
+                 | NakedFunction { nfName :: BName, nfAsm :: [String] }
+                 | VariadicFunction { vfName :: BName, vfMinArgs :: Int }
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -408,10 +409,20 @@ bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
                (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> (bNakedStatements <|> bStatement))
-              <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
-              <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
-                      ((charP '[' *> bws *>((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']') <|> bws $> Nothing) <* bws<*>     -- parsing maybe constant
-                      ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal) <|> return []) <* charP ';'-- parsing ivals
+
+               <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
+
+               <|> VariadicFunction <$> (stringP "__variadic__" *> charP '(' *> bws *> bName <* bws) <*>
+               (charP ',' *> bws *> fmap fromJust parseNum <* bws <* charP ')' <* bws <* charP ';')
+
+               <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
+               ((charP '[' *> bws *>
+                 ((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']')
+                 <|> bws $> Nothing)
+               <* bws <*>
+               ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal)
+                <|> return [])
+               <* charP ';'-- parsing ivals
 
 bNakedStatements :: Parser BStatement
 bNakedStatements = fmap Block $ (\x y-> x ++ [y]) <$> tryingRepeatedParser (naked <* bws) <*> bStatement
