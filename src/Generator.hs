@@ -21,8 +21,8 @@ data Arg = AutoVar     Word
          | DataOffset  Word
            deriving (Eq, Show)
 
-data NoOps = UpdateStack Word -- stack size
-             deriving (Eq, Show)
+newtype NoOps = UpdateStack Word -- stack size
+              deriving (Eq, Show)
 
 type BinOp = BBinary
 

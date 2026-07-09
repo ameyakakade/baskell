@@ -174,11 +174,11 @@ aFunction f = do
 aFunctionPrologue :: String -> Int -> Int -> RegCodegen ()
 aFunctionPrologue name countParam countAutoVars = do
     append $ ".global _" ++ name
-    append $ ".p2align 4"
+    append   ".p2align 4"
     append $ "_" ++ name ++ ":"
-    append $ "STP LR, FP, [SP, #-16]!"
+    append   "STP LR, FP, [SP, #-16]!"
     append $ "SUB SP, SP, #" ++ show stackOffset
-    append $ "MOV FP, SP"
+    append   "MOV FP, SP"
     if countParam==0
       then return ()
       else zipWithM_ storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)]
@@ -188,8 +188,8 @@ aFunctionPrologue name countParam countAutoVars = do
 aFunctionEpilogue :: Int -> Int -> RegCodegen ()
 aFunctionEpilogue countParam countAutoVars = do
     append $ "ADD SP, SP, #" ++ show stackOffset
-    append $ "LDP LR, FP, [SP], #16"
-    append $ "RET"
+    append   "LDP LR, FP, [SP], #16"
+    append   "RET"
       where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
             ccc = (countParam + countAutoVars)*8
 
@@ -321,7 +321,11 @@ aOp funName countParam countAutoVars o = case o of
               return ()
           NoOp (UpdateStack size) -> do
               s <- registerStates <$> getState
-              let b = filter (\(offset,_,_) -> size <= offset) s
+              let b = filter (\(_,a,_) -> case a of
+                                            AutoVar a -> a < size
+                                            Deref a -> a < size
+                                            _ -> True
+                             ) s
               updateState (\s -> s { registerStates = b })
   where fl (External s) = append $ "BL _" ++ s
         fl a = do
@@ -358,6 +362,3 @@ aBinary binOp loc lArg rArg = do
                                  "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL ++ "\n"  -- which is q then we do (q*b -a) which is mod
               Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
               Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" --
-
--- TODO: mandelbrot set example does not work properly. probably has to do with globals vars or smth idk
--- size <= autovar
