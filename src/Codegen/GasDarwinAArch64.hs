@@ -170,6 +170,6 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                       Modulo          -> "SDIV X0, X1, X2\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
                                                          "MSUB X0, X0, X2, X1\n"  -- which is q then we do (q*b -a) which is mod
                                       Or              -> "ORR X0, X1, X2\n"
-                                      Divide          -> "SDIV X0, X1, X2\n" --
+                                      Divide          -> "SDIV X0, X1, X2\n"
                                     ) ++
                                     storeVarOnStack 0 (fromIntegral resultLoc)

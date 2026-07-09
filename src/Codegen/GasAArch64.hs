@@ -6,6 +6,7 @@ import Generator
 import BParser        (BBinary (..))
 import Control.Monad
 import Data.Bits
+import Data.Foldable
 import Data.List
 import Data.Maybe
 import Data.Word
@@ -23,9 +24,9 @@ type RegCodegen = StateM State
 
 addCount :: RegCodegen ()
 addCount = StateM $ \s -> (s { count = count s + 1, codegenLog = codegenLog s ++
-                               ("Count: " ++ show (count s) ++ "\t" ++
+                               ["Count: " ++ show (count s) ++ "\t" ++
                                 (let a = show (registerStates s) in "Reg " ++ a ++ replicate (135 - length a) ' ') ++ "\t" ++
-                                (let a = asmOutput s in if null a then "" else last a)):[]},())
+                                (let a = asmOutput s in if null a then "" else last a)]},())
 
 setState :: State -> RegCodegen ()
 setState s = StateM (const (s,())) >>= const addCount
@@ -44,23 +45,22 @@ gasAArch64 = Target "gasAArch64" False asm
 asm :: IRProgram -> IO String
 asm p = do
     let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [] (variadics p))
-    if False
-      then do
+    when False
+      $ do
         print $ count s
         print $ registerStates s
         print $ firstTouchToAutoVar s
         putStrLn "---"
         putStr $ unlines $ codegenLog s
         putStrLn "---"
-      else return ()
     return $ unlines $ asmOutput s
 
 generateAsm :: IRProgram -> RegCodegen ()
 generateAsm p = do
     aProgramPrologue
-    traverse aFunction (functions p)
+    traverse_ aFunction (functions p)
     aGlobalVarSection (globalVars p)
-    traverse aNakedFunctionSection (nakedFunctions p)
+    traverse_ aNakedFunctionSection (nakedFunctions p)
     aDataSection (staticData p)
 
 aProgramPrologue :: RegCodegen ()
@@ -69,12 +69,11 @@ aProgramPrologue = do
 
 aGlobalVarSection :: [(String, Maybe Int, [Arg])] -> RegCodegen ()
 aGlobalVarSection l = do
-    traverse (\(s, ms, args) ->
+    traverse_ (\(s, ms, args) ->
                 if isNothing ms
                 then aGlobalVar s args
                 else aGlobalVector s (fromJust ms) args
              ) l
-    return ()
 
 aGlobalVar :: String -> [Arg] -> RegCodegen ()
 aGlobalVar vName initData = do
@@ -126,7 +125,7 @@ loadVarInMem destReg ptrReg = do
 saveRegisters :: RegCodegen ()
 saveRegisters = do
     s <- getState
-    traverse saveOneRegister (registerStates s)
+    traverse_ saveOneRegister (registerStates s)
     updateState $ \s -> s { registerStates = [] }
 
 saveOneRegister :: (Word, Arg, Word) -> RegCodegen ()
@@ -167,7 +166,7 @@ aFunction :: Function -> RegCodegen ()
 aFunction f = do
     aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f)
     updateState $ \s -> s { registerStates = [], firstTouchToAutoVar = [(paramsCount f)..(paramsCount f + autoVarCount f - 1)] }
-    traverse (aOp (funName f) (paramsCount f) (autoVarCount f)) (body f)
+    traverse_ (aOp (funName f) (paramsCount f) (autoVarCount f)) (body f)
     aFunctionEpilogue (paramsCount f) (autoVarCount f)
     append ""
     return ()
@@ -195,9 +194,8 @@ aFunctionEpilogue countParam countAutoVars = do
 aArg :: Arg -> RegCodegen Word
 aArg arg = do
     maybeInRegister <- findArgInRegisters arg
-    if isJust maybeInRegister
-      then return $ fromJust maybeInRegister
-      else case arg of
+    maybe
+      (case arg of
              DataOffset doff -> do
                  r <- getEmptyRegister
                  loadArgIntoReg r arg
@@ -225,7 +223,8 @@ aArg arg = do
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]\n"
                  addRegisterCache arg r
-                 return r
+                 return r)
+      return maybeInRegister
 
 loadArgIntoReg :: Word -> Arg -> RegCodegen ()
 loadArgIntoReg r arg = case arg of
@@ -265,12 +264,12 @@ aOp funName countParam countAutoVars o = case o of
                             addRegisterCache (AutoVar offset) 0
                       )
                       (\v -> do
-                            let minArgs = snd $ v
-                            let ss = alignStackOffset $ ((length fnArgs) - minArgs)*8
+                            let minArgs = snd v
+                            let ss = alignStackOffset $ (length fnArgs - minArgs)*8
                             append $ "SUB SP, SP, #" ++ show ss
-                            traverse
+                            traverse_
                               (\r -> append $ "STR X" ++ show r ++ ", [SP, " ++ show ((r-minArgs)*8) ++ "]" )
-                              [minArgs..((length fnArgs) - minArgs)]
+                              [minArgs..(length fnArgs - minArgs)]
                             append $ "BL _" ++ s
                             addRegisterCache (AutoVar offset) 0
                             append $ "ADD SP, SP, #" ++ show ss
@@ -340,8 +339,7 @@ aOp funName countParam countAutoVars o = case o of
               addRegisterCache (AutoVar dest) r
           Asm a -> do
               saveRegisters
-              traverse append a
-              return ()
+              traverse_ append a
           NoOp (UpdateStack size) -> do
               s <- registerStates <$> getState
               let b = filter (\(_,a,_) -> case a of
@@ -380,4 +378,4 @@ aBinary binOp loc lArg rArg = do
               Modulo          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
                                  "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL ++ "\n"  -- which is q then we do (q*b -a) which is mod
               Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
-              Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" --
+              Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
