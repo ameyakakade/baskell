@@ -1,5 +1,4 @@
 ### Note: This compiler is a work in progress and certain features are not implemented. 
-###       Only MacOS gas AArch64 target is supported.
 
 # Baskell
 ## Compiler for B programming language
