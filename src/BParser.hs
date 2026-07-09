@@ -435,12 +435,9 @@ bNakedStatements = fmap Block $ (\x y-> x ++ [y]) <$> tryingRepeatedParser (nake
 bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
 
--- TODO: Using ** inside string literals doesnt work as rvalue;
 -- TODO: Investigate if string literals are indexed properly.
 -- TODO: Postpone things like escaping chars and C style assignment to generator.
 --       This way we can turn those things off. Parse all you can and error out in
 --       generator. It still is difficult to turn off C-like one line comments
 
 -- TODO: Block that contains only auto or extrn without following statement should fail
-
--- TODO: Implement variadics
