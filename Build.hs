@@ -14,15 +14,12 @@ main = do
     runIfChanged False ["src/Test.hs"] "build/btest"
       $ logProcess
       $ readProcessWithExitCode "ghc" ["-o", "build/btest", "-outputdirbuild", "src/Test.hs", "-isrc/"] ""
-    runIfChanged False ["src/write.c"] "build/write.o"
-      $ logProcess
-      $ readProcessWithExitCode "cc" ["-c", "src/write.c", "-o", "build/write.o"] ""
 
     args <- getArgs
     when (args==["-test"])
       (do
         setCurrentDirectory "thirdparty/"
-        readProcess "../build/btest" ["-TgasDarwinAArch64"] "" >>= putStr)
+        readProcess "../build/btest" ["-TgasAArch64"] "" >>= putStr)
 
 logProcess p = do
     ~(e,so,se) <- p

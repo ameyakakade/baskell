@@ -34,7 +34,6 @@ main :: IO ()
 main = do
     args <- getArgs
 
-    let std = "/Users/ameya/Documents/Programming/baskell/build/" ++ "write.o"
     let newC = False
 
     let nC = isJust $ find (=="-B") args
@@ -65,9 +64,9 @@ main = do
                                                           ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
                     ) sourceFiles
 
-           runIfChanged nC (objectFiles ++ (std:map (getFileName ".o") sourceFiles))
+           runIfChanged nC (objectFiles ++ map (getFileName ".o") sourceFiles)
               (takeWhile (/='.') fileName)
-              (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') fileName, std] ++ map (getFileName ".o") sourceFiles ++ objectFiles ++ linkerFlags) "")
+              (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') fileName] ++ map (getFileName ".o") sourceFiles ++ objectFiles ++ linkerFlags) "")
            return ()
 
 prettyProcess :: Show a => IO (a, String, String) -> IO ()

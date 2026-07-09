@@ -1,6 +1,6 @@
 test(n) {
-	extrn printf3;
-	printf3(
+	extrn printf;
+	printf(
 		"%d:*t%s*n*0", n,
 		n == 69 ? "69*0" :
 		n == 420 ? "420*0" :
