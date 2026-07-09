@@ -319,6 +319,10 @@ aOp funName countParam countAutoVars o = case o of
               saveRegisters
               traverse append a
               return ()
+          NoOp (UpdateStack size) -> do
+              s <- registerStates <$> getState
+              let b = filter (\(offset,_,_) -> size <= offset) s
+              updateState (\s -> s { registerStates = b })
   where fl (External s) = append $ "BL _" ++ s
         fl a = do
             loadArgIntoReg 16 a
@@ -356,3 +360,4 @@ aBinary binOp loc lArg rArg = do
               Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" --
 
 -- TODO: mandelbrot set example does not work properly. probably has to do with globals vars or smth idk
+-- size <= autovar

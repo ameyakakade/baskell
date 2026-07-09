@@ -21,6 +21,9 @@ data Arg = AutoVar     Word
          | DataOffset  Word
            deriving (Eq, Show)
 
+data NoOps = UpdateStack Word -- stack size
+             deriving (Eq, Show)
+
 type BinOp = BBinary
 
 data Op = UnaryNot        Word   Arg          -- result, arg
@@ -36,6 +39,7 @@ data Op = UnaryNot        Word   Arg          -- result, arg
         | JmpIfZeroLabel  Word   Arg          -- label index, arg
         | Return          (Maybe Arg)         -- arg
         | Asm             [String]            -- arg
+        | NoOp            NoOps               -- operations to pass some info
           deriving (Eq, Show)
 
 data Storage = StorageExternal String
@@ -122,14 +126,18 @@ newLabel :: Compiler Word
 newLabel = Compiler $ \c -> (c { functionBody = functionBody c ++ [Label (functionLabelCount c)], functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
 
 allocateAutoVariable :: Word -> Compiler Word
-
 allocateAutoVariable sizeToAlloc = Compiler $ \c -> let count = cAutoVarCount c + sizeToAlloc
                                                     in (c { cAutoVarCount = count,
                                                             cAutoVarCountMax = max (cAutoVarCountMax c) count },
                                                          cAutoVarCount c)
 
-deallocateAutoVariable :: Word -> Compiler ()
-deallocateAutoVariable previousStackSize = updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
+getStackSize :: Compiler Word
+getStackSize = cAutoVarCount <$> getCompiler
+
+updateStack :: Word -> Compiler ()
+updateStack previousStackSize = do
+    updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
+    addOp (NoOp (UpdateStack previousStackSize))
 
 addOp :: Op -> Compiler ()
 addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }
@@ -232,9 +240,9 @@ gStatement statement = case statement of
                          Auto    a            -> gAuto (map (\(x,y)->(x,fmap fromIntegral y)) a)
                          While   cond st      -> gWhile cond st
                          SRValue a            -> do
-                                        stackSize <- cAutoVarCount <$> getCompiler
+                                        stackSize <- getStackSize
                                         gRValue a
-                                        updateCompiler $ \c -> c { cAutoVarCount = stackSize }
+                                        updateStack stackSize
                          IfElse  cond tst fst -> gIfElse cond tst fst
                          BReturn (Just a)     -> do
                                         rArg <- gRValue a
@@ -245,11 +253,11 @@ gStatement statement = case statement of
 
 gBlock :: [BStatement] -> Compiler ()
 gBlock ss = do
-  stackSize <- cAutoVarCount <$> getCompiler
+  stackSize <- getStackSize
   blockBegin
   traverse_ gStatement ss
   blockEnd
-  updateCompiler $ \c -> c { cAutoVarCount = stackSize }
+  updateStack stackSize
 
 gWhile :: BRValue -> BStatement -> Compiler ()
 gWhile cond st = mdo

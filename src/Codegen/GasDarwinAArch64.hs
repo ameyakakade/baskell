@@ -124,6 +124,7 @@ aOp funName countParam countAutoVars o = case o of
                              "NEG X0, X0\n" ++
                              storeVarOnStack 0 (fromIntegral dest)
           Asm a -> unlines a
+          NoOp _ -> ""
   where fl (External s) = "BL _" ++ s
         fl a            = aArg 16 a ++ "\n" ++ "BLR X16"
 
