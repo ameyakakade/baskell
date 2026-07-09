@@ -15,7 +15,8 @@ data State = State {
     count               :: Word,
     registerStates      :: [(Word, Arg, Word)], -- Register, arg, age
     firstTouchToAutoVar :: [Int], -- list of auto vars not yet initialized
-    codegenLog :: [String]
+    codegenLog          :: [String],
+    aVariadics          :: [(String, Int)]
     } deriving (Show)
 
 type RegCodegen = StateM State
@@ -42,7 +43,7 @@ gasAArch64 = Target "gasAArch64" False asm
 
 asm :: IRProgram -> IO String
 asm p = do
-    let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [])
+    let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [] (variadics p))
     if False
       then do
         print $ count s
@@ -77,9 +78,9 @@ aGlobalVarSection l = do
 
 aGlobalVar :: String -> [Arg] -> RegCodegen ()
 aGlobalVar vName initData = do
-    append   ".data"
+    append $ ".data"
     append $ ".global _" ++ vName
-    append   ".p2align 3 // investigate why this is needed"
+    append $ ".p2align 3 // investigate why this is needed"
     append $ "_" ++ vName ++ ":"
     let as = if null initData
              then [".quad 0"]
@@ -91,7 +92,7 @@ aGlobalVector vName vSize initData = undefined
 
 aDataSection :: [Word8] -> RegCodegen ()
 aDataSection a = do
-    append ".data"
+    append $ ".data"
     append $ ".dat: .byte " ++ intercalate "," (map show a)
 
 aGlobalVarArg :: Arg -> String
@@ -102,7 +103,7 @@ aGlobalVarArg (DataOffset a) = ".dat +" ++ show a
 aNakedFunctionSection :: NFunction -> RegCodegen ()
 aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = do
     append $  ".global _" ++ nfName
-    append    ".p2align 4"
+    append $  ".p2align 4"
     append $ "_" ++ nfName ++ ":"
     append $  unlines nfBlock
 
@@ -115,12 +116,12 @@ loadVarInStack destReg offset = append $ "LDR X" ++ show destReg ++ ", [FP, #" +
 storeVarInMem :: Word -> Word -> RegCodegen ()
 storeVarInMem reg ptrReg = do
     append $ "STR X" ++ show reg ++ ", [X" ++ show ptrReg ++ ", #0]"
-    append "; storing variable in memory"
+    append $ "; storing variable in memory"
 
 loadVarInMem :: Word -> Word -> RegCodegen ()
 loadVarInMem destReg ptrReg = do
     append $ "LDR X" ++ show destReg ++ ", [X" ++ show ptrReg ++ ", #0]"
-    append "; loading variable in memory"
+    append $ "; loading variable in memory"
 
 saveRegisters :: RegCodegen ()
 saveRegisters = do
@@ -174,24 +175,22 @@ aFunction f = do
 aFunctionPrologue :: String -> Int -> Int -> RegCodegen ()
 aFunctionPrologue name countParam countAutoVars = do
     append $ ".global _" ++ name
-    append   ".p2align 4"
+    append $ ".p2align 4"
     append $ "_" ++ name ++ ":"
-    append   "STP LR, FP, [SP, #-16]!"
-    append $ "SUB SP, SP, #" ++ show stackOffset
-    append   "MOV FP, SP"
-    if countParam==0
+    append $ "STP LR, FP, [SP, #-16]!"
+    append $ "SUB SP, SP, #" ++ show (alignStackOffset $ (countParam + countAutoVars)*8)
+    append $ "MOV FP, SP"
+    if countParam == 0
       then return ()
       else zipWithM_ storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)]
-      where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
-            ccc = (countParam + countAutoVars)*8
+
+alignStackOffset ccc = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
 
 aFunctionEpilogue :: Int -> Int -> RegCodegen ()
 aFunctionEpilogue countParam countAutoVars = do
-    append $ "ADD SP, SP, #" ++ show stackOffset
-    append   "LDP LR, FP, [SP], #16"
-    append   "RET"
-      where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
-            ccc = (countParam + countAutoVars)*8
+    append $ "ADD SP, SP, #" ++ show (alignStackOffset $ (countParam + countAutoVars)*8)
+    append $ "LDP LR, FP, [SP], #16"
+    append $ "RET"
 
 aArg :: Arg -> RegCodegen Word
 aArg arg = do
@@ -250,14 +249,38 @@ loadArgIntoReg r arg = case arg of
                              append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
-                                         
+
 aOp :: String -> Int -> Int -> Op -> RegCodegen ()
 aOp funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> do
               saveRegisters
               zipWithM_ loadArgIntoReg [0..] fnArgs
-              fl fnLoc
-              addRegisterCache (AutoVar offset) 0
+              case fnLoc of
+                (External s) -> do
+                    c <- getState
+                    let isVariadic = find (\(x, _) -> x == s) (aVariadics c)
+                    maybe
+                      ( do
+                            append $ "BL _" ++ s
+                            addRegisterCache (AutoVar offset) 0
+                      )
+                      (\v -> do
+                            let minArgs = snd $ v
+                            let ss = alignStackOffset $ ((length fnArgs) - minArgs)*8
+                            append $ "SUB SP, SP, #" ++ show ss
+                            traverse
+                              (\r -> append $ "STR X" ++ show r ++ ", [SP, " ++ show ((r-minArgs)*8) ++ "]" )
+                              [minArgs..((length fnArgs) - minArgs)]
+                            append $ "BL _" ++ s
+                            addRegisterCache (AutoVar offset) 0
+                            append $ "ADD SP, SP, #" ++ show ss
+                            return ()
+                      )
+                      isVariadic
+                a -> do
+                    loadArgIntoReg 16 a
+                    append "BLR X16"
+                    addRegisterCache (AutoVar offset) 0
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> do
               argR <- aArg arg
@@ -323,14 +346,10 @@ aOp funName countParam countAutoVars o = case o of
               s <- registerStates <$> getState
               let b = filter (\(_,a,_) -> case a of
                                             AutoVar a -> a < size
-                                            Deref a -> a < size
-                                            _ -> True
+                                            Deref a   -> a < size
+                                            _         -> True
                              ) s
               updateState (\s -> s { registerStates = b })
-  where fl (External s) = append $ "BL _" ++ s
-        fl a = do
-            loadArgIntoReg 16 a
-            append "BLR X16"
 
 aBinary :: BinOp -> Word -> Arg -> Arg -> RegCodegen ()
 aBinary binOp loc lArg rArg = do
