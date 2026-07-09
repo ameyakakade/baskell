@@ -4,6 +4,10 @@
 # Baskell
 ## Compiler for B programming language
 
+#### How to use
+Do "runhaskell Build.hs" to compile the compiler and test utility. The binaries will be in the build folder.
+
+Orignal reference manual for B: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/kbman.html
 There are no third-party dependencies except Base (Haskell standard library).
 
 ### Parser
@@ -16,10 +20,7 @@ The generator converts AST into intermediate representation. I used a "precedenc
 properly in the AST itself. The IR is a simplified version inspired by IR of this project https://github.com/bext-lang/b.
 There is decent error reporting, the compiler can keep on compiling and accumulate errors.
 
-### "Targets"
-This part of the compiler is to be rewritten to make it easy to add new targets. Right now the only target is MacOS gas AArch64.
+### Targets
+There are 2 targets for Arm64 MacOS (Older target generates simpler but slower assembly), and Fasm target for x86_64 Linux is
+being developed. Default is Arm64 MacOS. More targets will be added soon :)
 
-#### How to use
-Do "runhaskell Build.hs" to compile the compiler and test utility. The binaries will be in the build folder.
-
-Orignal reference manual for B: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/kbman.html
