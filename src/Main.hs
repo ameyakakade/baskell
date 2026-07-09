@@ -38,7 +38,7 @@ main = do
 
     let nC = isJust $ find (=="-B") args
     let targetName = let a = drop 2 <$> find (isPrefixOf "-T") args
-                     in fromMaybe "gasDarwinAArch64" a
+                     in fromMaybe "gasAArch64" a
     let (Just target) = find (\(Target s _ _) -> s == targetName) targets
     let sourceFiles = filter (isSuffixOf ".b") args
     objectFiles <- traverse makeAbsolute $ filter (\x -> isSuffixOf ".o" x || isSuffixOf ".a" x) args
