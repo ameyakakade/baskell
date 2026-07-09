@@ -96,7 +96,7 @@ data CompilerState = CompilerState {
       cAutoVarCountMax    :: Word
     } deriving (Eq, Show)
 
-emptyCompiler = CompilerState (IRProgram [] [] [] [] [] []) [] [[]] [] [] 0 0 0 0
+emptyCompiler = CompilerState (IRProgram [] [] [] [] [] [("printf", 1)]) [] [[]] [] [] 0 0 0 0
 
 newtype Compiler a = Compiler { runCompiler :: CompilerState -> (CompilerState, a) } deriving (Functor)
 

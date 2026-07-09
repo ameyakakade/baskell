@@ -21,7 +21,7 @@ main = do
   if args==["-test"]
     then do
     setCurrentDirectory "thirdparty/"
-    readProcess "../build/btest" ["gasAArch64"] "" >>= putStr
+    readProcess "../build/btest" ["-TgasAArch64"] "" >>= putStr
     else return ()
 
 logProcess p = do
