@@ -225,9 +225,10 @@ aArg arg = do
                  addRegisterCache arg r
                  return r
              Ref offset -> do
+                 saveRegisters -- TODO: Maybe only discard the auto var being dereferenced.
                  r <- getEmptyRegister
                  append $ "MOV X" ++ show r ++ ", FP"
-                 append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show offset
+                 append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show (offset*8)
                  return r
              RefExternal name -> do
                  r <- getEmptyRegister
@@ -254,15 +255,15 @@ loadArgIntoReg r arg = case arg of
                                            if b4 == 0 then "" else "MOVK X" ++ show r ++ ", #" ++ show b4 ++ ", LSL 48\n")
                          AutoVar autoVarOffset -> loadVarInStack r autoVarOffset
                          Deref autoVarOffset -> do
-                             ptrR <- aArg (AutoVar autoVarOffset)
-                             loadVarInMem r ptrR
+                             loadArgIntoReg 17 (AutoVar autoVarOffset)
+                             loadVarInMem r 17
                          External name -> do
                              append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
                          Ref offset -> do
                              append $ "MOV X" ++ show r ++ ", FP"
-                             append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show offset
+                             append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show (offset*8)
                          RefExternal name -> do
                              append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"

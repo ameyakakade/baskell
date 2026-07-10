@@ -422,13 +422,11 @@ gIncDec l op post = do
 getAddress :: BLValue -> Compiler Arg
 getAddress (Dereference rVal) = gRValue rVal
 getAddress lValue = do
-    autoVarOffset <- allocateAutoVariable 1
     lArg <- gLValue lValue
     case lArg of
-      (External a) -> return (RefExternal a)
-      _ -> do
-          addOp (AutoAssign autoVarOffset lArg)
-          return (Ref autoVarOffset)
+      External a -> return (RefExternal a)
+      AutoVar a -> return (Ref a)
+      Deref a -> return (AutoVar a)
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
