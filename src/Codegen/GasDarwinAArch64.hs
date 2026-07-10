@@ -12,7 +12,7 @@ gasDarwinAArch64 = Target "gasDarwinAArch64" False $ return . asm
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
-        concatMap aFunction (functions p) ++ "\n" ++
+        concatMap (aFunction (variadics p)) (functions p) ++ "\n" ++
         aGlobalVarSection (globalVars p) ++ "\n" ++
         concatMap aNakedFunctionSection (nakedFunctions p) ++ "\n" ++
         aDataSection (staticData p)
@@ -52,10 +52,10 @@ aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = ".global _" ++ nfName +
                                                          "_" ++ nfName ++ ":\n" ++
                                                          unlines nfBlock
 
-aFunction :: Function -> String
-aFunction f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
-              concatMap (\x->aOp (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
-              aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
+aFunction :: [(String, Int)] -> Function -> String
+aFunction vs f = aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f) ++ "\n" ++
+                 concatMap (\x->aOp vs (funName f) (paramsCount f) (autoVarCount f) x ++ "\n") (body f) ++ "\n" ++
+                 aFunctionEpilogue (paramsCount f) (fromIntegral $ autoVarCount f)
 
 aFunctionPrologue :: String -> Int -> Int -> String
 aFunctionPrologue name countParam countAutoVars = "\n.global _" ++ name ++ "\n" ++
@@ -67,6 +67,8 @@ aFunctionPrologue name countParam countAutoVars = "\n.global _" ++ name ++ "\n" 
                                                   concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)])
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
+  
+alignStackOffset ccc = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
 
 aFunctionEpilogue :: Int -> Int -> String
 aFunctionEpilogue countParam countAutoVars = "ADD SP, SP, #" ++ show stackOffset ++ "\n" ++
@@ -91,11 +93,25 @@ loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
                                  "LDR X0, [X" ++ show destReg ++ ", #0]\n"
                                  ++ "\n; loading variable in memory\n"
 
-aOp :: String -> Int -> Int -> Op -> String
-aOp funName countParam countAutoVars o = case o of
+aOp :: [(String, Int)] -> String -> Int -> Int -> Op -> String
+aOp variadics funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> concat (zipWith aArg [0..] fnArgs) ++
-                                         fl fnLoc ++ "\n" ++
-                                         storeVarOnStack 0 (fromIntegral offset)
+                                         case fnLoc of
+                                           (External s) -> let isVariadic = find (\(x, _) -> x == s) variadics
+                                                           in maybe ( "BL _" ++ s ++ "\n" ++
+                                                                      storeVarOnStack 0 (fromIntegral offset))
+                                                              ( \v -> let minArgs = snd v
+                                                                          ss = alignStackOffset $ (length fnArgs - minArgs)*8
+                                                                      in "SUB SP, SP, #" ++ show ss ++ "\n" ++
+                                                                         concatMap (\r -> "STR X" ++ show r ++ ", [SP, " ++ show ((r-minArgs)*8) ++ "]\n")
+                                                                         [minArgs..(length fnArgs - minArgs)] ++ "\n" ++
+                                                                         "BL _" ++ s ++ "\n" ++
+                                                                         storeVarOnStack 0 (fromIntegral offset) ++
+                                                                         "ADD SP, SP, #" ++ show ss ++ "\n"
+                                                              )
+                                                              isVariadic
+                                           a -> aArg 16 a ++ "\n" ++ "BLR X16\n" ++
+                                                storeVarOnStack 0 (fromIntegral offset)
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg 0 arg ++ storeVarOnStack 0 (fromIntegral loc)
           MemoryAssign ptrLoc arg -> aArg 0 arg ++ storeVarInMem 0 (fromIntegral ptrLoc)
@@ -125,8 +141,6 @@ aOp funName countParam countAutoVars o = case o of
                              storeVarOnStack 0 (fromIntegral dest)
           Asm a -> unlines a
           NoOp _ -> ""
-  where fl (External s) = "BL _" ++ s
-        fl a            = aArg 16 a ++ "\n" ++ "BLR X16"
 
 aArg :: Word -> Arg -> String
 aArg reg arg = case arg of
