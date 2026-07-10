@@ -16,8 +16,10 @@ import Parser
 
 data Arg = AutoVar     Word
          | Deref       Word
+         | Ref         Word   -- get address of auto variable
+         | RefExternal String -- get address of external variable
          | External    String
-         | Literal     Word -- has to be word
+         | Literal     Word   -- has to be word
          | DataOffset  Word
          deriving (Eq, Show)
 
@@ -305,6 +307,7 @@ gRValue rvalue = case rvalue of
                    IncDecPre  op l      -> gIncDec l op False
                    RUnary op r          -> gUnary op r
                    Ternary cond t f     -> gTernary cond t f
+                   GetAddress lValue    -> getAddress lValue
 
 gFunctionCall :: BRValue -> [BRValue] -> Compiler Arg
 gFunctionCall functionLoc args = do
@@ -338,13 +341,13 @@ gLValue l = case l of
               LName n -> do
                      vf <- find (\b -> name n == name b) . globalNames <$> getCompiler
                      if isJust vf then return (External (name n))
-                     else do
-                       v <- findVar (name n)
-                       if isJust v then
+                       else do
+                         v <- findVar (name n)
+                         if isJust v then
                            return $ case varStorage (fromJust v) of
                                       StorageExternal s -> External s
                                       StorageAuto i     -> AutoVar i
-                       else bogusArg <$ addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'")
+                           else bogusArg <$ addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'")
               Array ptr offset -> do
                      ptrArg <- gRValue ptr
                      offsetArg <- gRValue offset
@@ -353,8 +356,13 @@ gLValue l = case l of
                      return $ Deref arrayPtr
               Dereference i -> do
                      derefArg <- gRValue i
-                     return $ case derefArg of
-                                AutoVar a -> Deref a
+                     case derefArg of
+                       AutoVar a -> return $ Deref a
+                       Ref a -> return $ (AutoVar a)
+                       _ -> do
+                           autoVarOffset <- allocateAutoVariable 1
+                           addOp (AutoAssign autoVarOffset derefArg)
+                           return (Deref autoVarOffset)
 
 gConstant :: BConstant -> Compiler Arg
 gConstant constantValue = case constantValue of
@@ -410,6 +418,17 @@ gIncDec l op post = do
       addOp (AutoAssign resultAutoVar lArg)
       gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
     else gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
+
+getAddress :: BLValue -> Compiler Arg
+getAddress (Dereference rVal) = gRValue rVal
+getAddress lValue = do
+    autoVarOffset <- allocateAutoVariable 1
+    lArg <- gLValue lValue
+    case lArg of
+      (External a) -> return (RefExternal a)
+      _ -> do
+          addOp (AutoAssign autoVarOffset lArg)
+          return (Ref autoVarOffset)
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $
