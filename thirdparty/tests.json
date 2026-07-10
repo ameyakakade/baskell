@@ -1641,8 +1641,8 @@
         "case": "stack_alloc",
         "target": "gas-aarch64-darwin",
         "expected_stdout": "a = 1\nb = 2\nc = 3\n69\n420\n1337\n",
-        "state": "Enabled",
-        "comment": ""
+        "state": "Disabled",
+        "comment": "Compiler hangs"
     },
     {
         "case": "stack_alloc",

@@ -358,7 +358,7 @@ gLValue l = case l of
                      derefArg <- gRValue i
                      case derefArg of
                        AutoVar a -> return $ Deref a
-                       Ref a -> return $ (AutoVar a)
+                       Ref a -> return $ AutoVar a
                        _ -> do
                            autoVarOffset <- allocateAutoVariable 1
                            addOp (AutoAssign autoVarOffset derefArg)

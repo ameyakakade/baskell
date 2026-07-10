@@ -19,7 +19,7 @@ main = do
     when (args==["-test"])
       (do
         setCurrentDirectory "thirdparty/"
-        readProcess "../build/btest" ["-TgasDarwinAArch64"] "" >>= putStr)
+        readProcess "../build/btest" ["-TgasAArch64"] "" >>= putStr)
 
 logProcess p = do
     ~(e,so,se) <- p
