@@ -14,7 +14,7 @@ test1() {
 	/* printf("&y: %p*n", &y); */
 
 	printf("x: %d %d %d %d %d*n", x, *&x, &*x, &*&*&*x, *&*&*&x);
-	/* printf("y: %d %d %d %d %d*n", y, *&y, &*y, &*&*&*y, *&*&*&y); */
+	printf("y: %d %d %d %d %d*n", y, *&y, &*y, &*&*&*y, *&*&*&y);
 }
 
 test2() {
