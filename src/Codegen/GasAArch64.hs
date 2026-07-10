@@ -223,7 +223,19 @@ aArg arg = do
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]\n"
                  addRegisterCache arg r
-                 return r)
+                 return r
+             Ref offset -> do
+                 r <- getEmptyRegister
+                 append $ "MOV X" ++ show r ++ ", FP"
+                 append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show offset
+                 return r
+             RefExternal name -> do
+                 r <- getEmptyRegister
+                 append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+                 addRegisterCache arg r
+                 return r
+      )
       return maybeInRegister
 
 loadArgIntoReg :: Word -> Arg -> RegCodegen ()
@@ -248,6 +260,12 @@ loadArgIntoReg r arg = case arg of
                              append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
+                         Ref offset -> do
+                             append $ "MOV X" ++ show r ++ ", FP"
+                             append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show offset
+                         RefExternal name -> do
+                             append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                             append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
 
 aOp :: String -> Int -> Int -> Op -> RegCodegen ()
 aOp funName countParam countAutoVars o = case o of
