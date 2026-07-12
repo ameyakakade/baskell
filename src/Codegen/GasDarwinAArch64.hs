@@ -90,7 +90,7 @@ storeVarInMem reg ptrOffset = loadVarInStack (reg+1) ptrOffset ++
 
 loadVarInMem :: Int -> Int -> String
 loadVarInMem destReg ptrOffset = loadVarInStack destReg ptrOffset ++
-                                 "LDR X0, [X" ++ show destReg ++ ", #0]\n"
+                                 "LDR X" ++ show destReg ++ ", [X" ++ show destReg ++ ", #0]\n"
                                  ++ "\n; loading variable in memory\n"
 
 aOp :: [(String, Int)] -> String -> Int -> Int -> Op -> String
@@ -161,6 +161,10 @@ aArg reg arg = case arg of
              External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
                               "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n" ++
                               "LDR X" ++ show reg ++ ", [X" ++ show reg ++ "]\n"
+             Ref offset -> "MOV X" ++ show reg ++ ", FP\n" ++
+                           "ADD X" ++ show reg ++ ", X" ++ show reg ++ ", #" ++ show (offset*8) ++ "\n"
+             RefExternal name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
+                                 "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n"
 
 aBinary :: BinOp -> Word -> Arg -> Arg -> String
 aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
