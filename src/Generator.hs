@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 -- this will generate IR code from AST.
 
@@ -7,7 +6,6 @@ module Generator where
 import BParser
 import Control.Applicative
 import Control.Monad.Fix
-import qualified Data.Text as T
 import Data.Char
 import Data.Foldable
 import Data.Function
@@ -19,8 +17,8 @@ import Parser
 data Arg = AutoVar     Word
          | Deref       Word
          | Ref         Word   -- get address of auto variable
-         | RefExternal T.Text -- get address of external variable
-         | External    T.Text
+         | RefExternal String -- get address of external variable
+         | External    String
          | Literal     Word   -- has to be word
          | DataOffset  Word
          deriving (Eq, Show)
@@ -35,29 +33,29 @@ data Op = UnaryNot        Word   Arg          -- result, arg
         | OpBin           BinOp  Word Arg Arg -- binop, index, lhs, rhs
         | Index           Word   Arg  Arg     -- result, arg, offset
         | AutoAssign      Word   Arg          -- index, arg
-        | ExternalAssign  T.Text Arg          -- name, arg
+        | ExternalAssign  String Arg          -- name, arg
         | MemoryAssign    Word   Arg          -- auto var index to be dereferenced, arg
         | Funcall         Word   Arg  [Arg]   -- result, fn, args
         | Label           Word                -- label
         | JmpLabel        Word                -- label index
         | JmpIfZeroLabel  Word   Arg          -- label index, arg
         | Return          (Maybe Arg)         -- arg
-        | Asm             [T.Text]            -- arg
+        | Asm             [String]            -- arg
         | NoOp            NoOps               -- operations to pass some info
         deriving (Eq, Show)
 
-data Storage = StorageExternal T.Text
+data Storage = StorageExternal String
              | StorageAuto Word
              deriving (Eq, Show)
 
 data Var = Var {
-      varName    :: T.Text,
+      varName    :: String,
       varStorage :: Storage,
       varLoc     :: Int
       } deriving (Eq, Show)
 
 data Function = Function {
-      funName      :: T.Text,
+      funName      :: String,
       funLoc       :: Int,
       body         :: [Op],
       paramsCount  :: Int,
@@ -65,22 +63,22 @@ data Function = Function {
       } deriving (Eq, Show)
 
 data NFunction = NFunction {
-      nFunName :: T.Text,
+      nFunName :: String,
       nFunLoc  :: Int,
-      nBody    :: [T.Text]
+      nBody    :: [String]
       } deriving (Eq, Show)
 
 data IRProgram = IRProgram {
       functions      :: [Function],
       nakedFunctions :: [NFunction],
       staticData     :: [Word8],
-      globalVars     :: [(T.Text, Maybe Int, [Arg])],
-      extrns         :: [T.Text],
-      variadics      :: [(T.Text, Int)]
+      globalVars     :: [(String, Maybe Int, [Arg])],
+      extrns         :: [String],
+      variadics      :: [(String, Int)]
       } deriving (Eq, Show)
 
 data GenError = GenError {
-      genErrorString    :: T.Text,
+      genErrorString    :: String,
       genErrorLocLength :: Maybe (Int, Int)
       } deriving (Eq, Show)
 
@@ -147,13 +145,13 @@ updateStack previousStackSize = do
 addOp :: Op -> Compiler ()
 addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }
 
-addError :: Maybe BName -> (T.Text -> T.Text) -> Compiler ()
+addError :: Maybe BName -> (String -> String) -> Compiler ()
 addError n s = updateCompiler $ \c -> c { errors = errors c ++ [ne] }
     where ne = if isJust n
-               then let n' = fromJust n in GenError (s (name n')) (Just (nameLoc n', T.length $ name n'))
+               then let n' = fromJust n in GenError (s (name n')) (Just (nameLoc n', length $ name n'))
                else GenError (s "") Nothing
 
-findVar :: T.Text -> Compiler (Maybe Var)
+findVar :: String -> Compiler (Maybe Var)
 findVar n = do
     cs <- getCompiler
     let foundVars = mapMaybe (find (\x -> varName x == n)) (vars cs)
@@ -167,7 +165,7 @@ declareVar n s = do
     redefinition <- findVar (name n)
     if isNothing redefinition
     then setCompiler ( cs { vars = (newVar:uppermostScope):remainingScopes } )
-    else addError (Just n) (\x -> "Redefinition of variable '" <> x <> "'")
+    else addError (Just n) (\x -> "Redefinition of variable '" ++ x ++ "'")
 
 declareVarExtrn :: BName -> Compiler ()
 declareVarExtrn n = do
@@ -349,7 +347,7 @@ gLValue l = case l of
                            return $ case varStorage (fromJust v) of
                                       StorageExternal s -> External s
                                       StorageAuto i     -> AutoVar i
-                           else bogusArg <$ addError (Just n) (\x -> "Could not find variable '" <> x <> "'")
+                           else bogusArg <$ addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'")
               Array ptr offset -> do
                      ptrArg <- gRValue ptr
                      offsetArg <- gRValue offset
@@ -374,7 +372,7 @@ gConstant constantValue = case constantValue of
                                 oldProgram <- program <$> getCompiler
                                 let oldStaticData = staticData oldProgram
                                 let dataLength = (fromIntegral . length) oldStaticData
-                                updateCompiler $ \c -> c { program = oldProgram { staticData = oldStaticData ++ fmap (fromIntegral . ord) (T.unpack a) ++ [0] } }
+                                updateCompiler $ \c -> c { program = oldProgram { staticData = oldStaticData ++ fmap (fromIntegral . ord) a ++ [0] } }
                                 return (DataOffset dataLength)
 
 gBinary :: BRValue -> BBinary -> BRValue -> Compiler Arg
