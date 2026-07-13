@@ -1,8 +1,10 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Codegen.Common where
 
-import Generator
+import qualified Data.Text as T
+import           Generator
 
-data Target = Target { targetName :: String, optimization :: Bool, output :: IRProgram -> IO String }
+data Target = Target { targetName :: String, optimization :: Bool, output :: IRProgram -> IO T.Text }
 
 newtype StateM state b = StateM { runStateM :: state -> (state, b) } deriving (Functor)
 

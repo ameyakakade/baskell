@@ -1,19 +1,21 @@
+{-# LANGUAGE OverloadedStrings #-}
 module BParser where
 
-import Parser
+import           Parser
 
-import Control.Applicative
-import Data.Char
-import Data.Either
-import Data.Functor
-import Data.List
-import Data.Maybe
+import           Control.Applicative
+import qualified Data.Text as T
+import           Data.Char
+import           Data.Either
+import           Data.Functor
+import           Data.List
+import           Data.Maybe
 
 type BProgram = [BDefinition]
 
 data BDefinition = FDefinition { fName :: BName, fArgs :: [BName], fStatement :: BStatement }
                  | GlobalVar { vName :: BName, vSize :: Maybe Int, vInit :: [BIVal] }
-                 | NakedFunction { nfName :: BName, nfAsm :: [String] }
+                 | NakedFunction { nfName :: BName, nfAsm :: [T.Text] }
                  | VariadicFunction { vfName :: BName, vfMinArgs :: Int }
                  deriving (Eq, Show)
 
@@ -32,7 +34,7 @@ data BStatement = Auto      [(BName, Maybe Int)]
                 | Goto      BRValue
                 | BReturn   (Maybe BRValue)
                 | SRValue   BRValue
-                | InlineAsm [String]
+                | InlineAsm [T.Text]
                 | Empty
                 deriving (Eq, Show)
 
@@ -104,26 +106,26 @@ data BLValue = LName       BName
              deriving (Eq, Show)
 
 data BConstant = Digit       Int
-               | HexConst    String
-               | OctalConst  String
-               | BinaryConst String
+               | HexConst    T.Text
+               | OctalConst  T.Text
+               | BinaryConst T.Text
                | CharConst   Char
-               | Chars       String
+               | Chars       T.Text
                deriving (Eq, Show)
 
-data BName = BName { name :: String, nameLoc :: Int }
+data BName = BName { name :: T.Text, nameLoc :: Int }
            deriving (Eq, Show)
 
 keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__"]
 
 -- WARNING: C like comments are supported
-bWhiteSpace :: Bool -> Parser String
-bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> findEnd "*/" *> wsf
-                                  <|> stringP "//" *> findEnd "\n" *> wsf
-                                  <|> pure "")
+bWhiteSpace :: Bool -> Parser ()
+bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> findEnd ("*/") *> wsf $> ()
+                                  <|> stringP "//" *> findEnd ("\n") *> wsf $> ()
+                                  <|> pure "" $> ())
     where findEnd end = Parser $ \input -> do
                           (a, restIn) <- runParser (spanP (/= head end)) input
-                          let a = runParser (stringP end) restIn
+                          let a = runParser (stringP $ T.pack end) restIn
                           if isLeft a
                           then do
                             (_, restIn') <- runParser (charP '*') restIn
@@ -136,12 +138,19 @@ bWhiteSpace skipNewlines = wsf *> (stringP "/*" *> findEnd "*/" *> wsf
 bws = bWhiteSpace True
 bwsnn = bWhiteSpace False
 
-escapedStringP :: (Char -> Bool) -> Parser String
+escapedStringP :: (Char -> Bool) -> Parser T.Text
 escapedStringP predicate = Parser f
   where
-    f (c, []) = Right ([], (c, []))
-    f (c, x:xs)
-      | x== '*' = let (a:as) = xs
+    f (c, w) = if T.null w
+               then Right (T.empty, (c, T.empty))
+               else let x  = T.head w
+                        xs = T.tail w
+                    in hp x xs c
+    hp x xs c = case x of
+      '*' -> if T.null xs
+             then undefined  -- TODO: error out
+             else let a = T.head xs
+                      as = T.tail xs
                       a' = escapedChars a
                   in if isNothing a'
                      then Left (Error "Invalid escape char" (c, xs))
@@ -149,15 +158,17 @@ escapedStringP predicate = Parser f
                           in if isRight b
                              then let Right (ys, (c', zs)) = b
                                       c'' = c'+2
-                                  in Right (fromJust a':ys, (c'', zs))
+                                  in Right (fromJust a' `T.cons` ys, (c'', zs))
                              else b
-      | predicate x = let a = f (c, xs)
-                      in if isRight a
-                         then let Right (ys, (c', zs)) = a
-                                  c'' = c'+1
-                              in Right (x:ys, (c'', zs))
-                         else a
-      | otherwise   = Right ([], (c, x:xs))
+      x -> if predicate x
+           then let a = f (c, xs)
+                in if isRight a
+                   then let Right (ys, (c', zs)) = a
+                            c'' = c'+1
+                        in Right (x `T.cons` ys, (c'', zs))
+                   else a
+           else Right (T.empty, (c, x `T.cons ` xs))
+
     escapedChars c = case c of
                        '0' -> Just '\0'
                        'n' -> Just '\n'
@@ -166,18 +177,19 @@ escapedStringP predicate = Parser f
                        '*' -> Just '*'
                        a   -> Nothing
 
-safeSpanP' :: Bool -> (Char -> Bool) -> Parser String
-safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=[]
+              
+safeSpanP' :: Bool -> (Char -> Bool) -> Parser T.Text
+safeSpanP' safeBrackets p = Parser $ \(c,i) -> if i/=T.empty
                                               then
-                                                  let b = runParser (sp <|> pp <|> fmap (:[]) (predicateP p "Error in safeSpanP")) (c,i)
+                                                  let b = runParser (sp <|> pp <|> fmap (T.singleton) (predicateP p "Error in safeSpanP")) (c,i)
                                                   in if isRight b
                                                      then do
                                                        let Right (ob, restIn) = b
                                                        (bs, restIn') <- runParser (safeSpanP' safeBrackets p) restIn
-                                                       return (ob++bs, restIn')
-                                                     else return ([], (c,i))
-                                              else return ([], (c,i))
-    where sp = (\x y z -> [x]++y++[z]) <$> charP '"' <*> escapedStringP (/='"') <*> charP '"'
+                                                       return (T.append ob bs, restIn')
+                                                     else return (T.empty, (c,i))
+                                              else return (T.empty, (c,i))
+    where sp = (\x y z -> T.singleton x <> y <> T.singleton z) <$> charP '"' <*> escapedStringP (/='"') <*> charP '"'
           pp = if safeBrackets then selectBracketed '(' ')' 0 else empty
 
 safeSpanP = safeSpanP' False
@@ -190,24 +202,24 @@ selectBracketed sI eI n = Parser $ \input -> do
                             runParser ((if isLeft firstChar
                                        then replaceErr st
                                        else failureToError st) (selectBracketedE sI eI n)) input
-    where st = "Expected " ++ "'" ++ [sI] ++ "' " ++ "'" ++ [eI] ++ "' pair."
+    where st = "Expected " <> "'" <> T.singleton sI <> "' " <> "'" <> T.singleton eI <> "' pair."
 
-selectBracketedE :: Char -> Char -> Int -> Parser String
+selectBracketedE :: Char -> Char -> Int -> Parser T.Text
 selectBracketedE sI eI n = (charP eI <|> charP sI) >>= f
     where p c = c /= sI && c /= eI
           f b = Parser $ \i ->
                 let z bs ns = do
                       (s, restIn) <- runParser (safeSpanP p) i
                       (a, restIn') <- runParser (selectBracketedE sI eI ns) restIn
-                      Right (bs++s++a, restIn')
+                      Right (bs<>s<>a, restIn')
                 in
                   if b==eI
                   then if n == 1
-                       then Right ([b], i)
-                       else z [b] (n-1)
-                  else z [b] (n+1)
+                       then Right (T.singleton b, i)
+                       else z (T.singleton b) (n-1)
+                  else z (T.singleton b) (n+1)
 
-finiteSelectBracketed sI eI parser = fmap init (selectBracketed sI eI 0) >>> (charP sI *> parser)
+finiteSelectBracketed sI eI parser = fmap T.init (selectBracketed sI eI 0) >>> (charP sI *> parser)
 
 bIVal :: Parser BIVal
 bIVal = fmap IConstant bConstant
@@ -251,32 +263,32 @@ bConstant :: Parser BConstant
 bConstant = parseNumConstant
             <|> fmap CharConst (charP '\'' *> Parser (\input -> do
                                            (a, restIn) <- runParser (escapedStringP (/='\'')) input
-                                           if length a == 1
-                                           then let [a1]=a in return (a1, restIn)
+                                           if T.length a == 1
+                                           then let a1 = T.head a in return (a1, restIn)
                                            -- else Left (["Expected only one character"], restIn)
-                                           else return (head a, restIn)
+                                           else return (T.head a, restIn)
                                         ) <* charP '\'')
             <|> fmap Chars (charP '"' *> escapedStringP (/='"') <* charP '"')
 
 parseNumConstant :: Parser BConstant
 parseNumConstant = fmap HexConst (charP '0' *> (charP 'x' <|> charP 'X') *>
-                     (fmap (:) (predicateP hexChars "Expected valid hex constant.") <*> spanP hexChars))
+                     (fmap T.cons (predicateP hexChars "Expected valid hex constant.") <*> spanP hexChars))
           <|> fmap BinaryConst (charP '0' *> (charP 'b' <|> charP 'B') *>
-                                (fmap (:) (predicateP binaryChars "Expected valid binary constant.") <*> spanP binaryChars))
+                                (fmap T.cons (predicateP binaryChars "Expected valid binary constant.") <*> spanP binaryChars))
           <|> fmap OctalConst (charP '0' *>
-                               (fmap (:) (predicateP octalChars "Expected valid octal constant.") <*> spanP octalChars))
-          <|> fmap (Digit . read) digitParser
-    where digitParser = fmap (:) (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit
+                               (fmap T.cons (predicateP octalChars "Expected valid octal constant.") <*> spanP octalChars))
+          <|> fmap (Digit . read) (fmap T.unpack $ digitParser)
+    where digitParser = fmap T.cons (predicateP isDigit "Expected atleast one digit") <*> spanP isDigit
           hexChars x = any ($ x) (map (==) "0123456789ABCDEFabcdef")
           binaryChars x = any ($ x) (map (==) "01")
           octalChars x = any ($ x) (map (==) "01234567")
 
 bName :: Parser BName
 bName = Parser $ \(loc, i) -> do
-          (r, restIn) <- runParser (fmap (:) (predicateP (\x -> (x=='_') || isAlpha x) "Expected identifier.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
+          (r, restIn) <- runParser (fmap T.cons (predicateP (\x -> (x=='_') || isAlpha x) "Expected identifier.") <*> spanP (\x -> (x=='_') || isAlphaNum x)) (loc, i)
           let f = find (==r) keywords
           if isJust f
-          then Left (Error (r ++ " is a reserved keyword.\n") (loc, i))
+          then Left (Error (r <> " is a reserved keyword.\n") (loc, i))
           else return (BName r loc, restIn)
 
 bRValue = bRValue' True
@@ -286,7 +298,7 @@ pratter :: Bool -> Int -> Parser BRValue
 pratter trying minBP = bws *> (bRValueFunctionCall <|> bSingleRValue) <* bws >>= loop
     where loop lhs = Parser
                      $ \(c,i) ->
-                         if null i
+                         if T.null i
                          then Right (lhs, (c,i))
                          else do
                            let input = (c,i)
@@ -349,7 +361,7 @@ bRValueFunctionCall = FunctionCall <$> bSingleRValue <*>
                         finiteSelectBracketed '(' ')'
                         (bws *> Parser (\input -> do
                                     let parseArg = safeSpanP' True (/=',') >>> bRValue
-                                    if null $ snd input
+                                    if T.null $ snd input
                                     then return ([], input)
                                     else do
                                       (p, restIn) <- runParser parseArg input
@@ -393,17 +405,17 @@ bStatement = fmap Block (bws *> finiteSelectBracketed '{' '}' (failureToError "I
 selSt p = (safeSpanP (/=';') <* charP ';') >>> p
 keywordParser keyword = stringP keyword <* keywordSpacer keyword <* bws
     where keywordSpacer i = Parser $ \input -> do
-                              runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " ++ i ++ ".")) input
+                              runParser (predicateP (\x -> isSpace x || (x=='/')) ("Expected " <> i <> ".")) input
                               return ("", input)
 
-parseInlineAsm :: Parser [String]
+parseInlineAsm :: Parser [T.Text]
 parseInlineAsm = stringP "__asm__" *> bws *> (charP '(' *> bws *>
                                               (((:) <$> sc <* bws <*> tryingRepeatedParser (bws *> charP ',' *> bws *> sc))
                                               <|> ([] <$ bws)) <* bws <* charP ')' <* charP ';')
     where sc = charP '"' *> escapedStringP (/='"') <* charP '"'
 
 parseNum :: Parser (Maybe Int)
-parseNum = (\s -> if null s then Nothing else Just (read s)) <$> spanP isNumber
+parseNum = (\s -> if T.null s then Nothing else Just (read $ T.unpack $ s)) <$> spanP isNumber
 
 bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>

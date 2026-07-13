@@ -1,21 +1,24 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import BParser
-import Codegen
-import Codegen.GasAArch64
-import Codegen.GasDarwinAArch64
-import Generator
-import Parser
+import           BParser
+import           Codegen
+import           Codegen.GasAArch64
+import qualified Data.Text          as T
+import qualified Data.Text.IO       as T
+-- import Codegen.GasDarwinAArch64
+import           Generator
+import           Parser
 
-import Control.Monad
-import Data.Foldable
-import Data.List
-import Data.Maybe
-import Data.Time.Clock
-import System.Directory
-import System.Environment
-import System.Exit
-import System.Process
+import           Control.Monad
+import           Data.Foldable
+import           Data.List
+import           Data.Maybe
+import           Data.Time.Clock
+import           System.Directory
+import           System.Environment
+import           System.Exit
+import           System.Process
 
 bd = ".baskellbuild/"
 
@@ -102,8 +105,8 @@ checkChange out fp = do
 
 compileFile :: Target -> Bool -> String -> IO ()
 compileFile target dumpInfo fileName = do
-    a <- readFile fileName
-    let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
+    a <- T.readFile fileName
+    let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip (T.unpack a) [0..]
     let parsed = startParser bProgram a
     let (Right (r,_)) = parsed
 
@@ -120,15 +123,15 @@ compileFile target dumpInfo fileName = do
             asmo <- output target (snd irp)
             when dumpInfo (do
                   putStrLn "\nASM:"
-                  putStrLn asmo)
+                  T.putStrLn asmo)
             if null (fst irp)
             then do
-              writeFile (getFileName ".s" fileName) asmo
+              T.writeFile (getFileName ".s" fileName) asmo
               putStrLn "Compiled successfully"
             else do
-              putStr $ unlines $ map (\e -> if isNothing $ genErrorLocLength e
-                                            then fileName ++ ":" ++ "\t" ++ "ERROR: " ++ genErrorString e
-                                            else fileName ++ ":" ++ findLocLen newLines (fromJust $ genErrorLocLength e) ++ "\t" ++ "ERROR: " ++ genErrorString e)
+              T.putStr $ T.unlines $ map (\e -> if isNothing $ genErrorLocLength e
+                                                then (T.pack fileName) <> ":" <> "\t" <> "ERROR: " <> genErrorString e
+                                                else (T.pack fileName) <> ":" <> findLocLen newLines (fromJust $ genErrorLocLength e) <> "\t" <> "ERROR: " <> genErrorString e)
                          (fst irp)
               putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
               putStrLn ""
@@ -138,14 +141,14 @@ compileFile target dumpInfo fileName = do
                   putStrLn "Syntax failure"
                   putStr $ fileName ++ ":"
                   putStrLn $ findLoc newLines loc
-                  putStr $ unlines errors
+                  T.putStr $ T.unlines errors
                   exitWith (ExitFailure 1)
 
       (Left (Error error (loc, s))) -> do
                   putStrLn "Syntax error"
                   putStr $ fileName ++ ":"
                   putStrLn $ findLoc newLines loc
-                  putStr error
+                  T.putStr error
                   exitWith (ExitFailure 1)
 
 findLoc :: [Int] -> Int -> String
@@ -153,6 +156,6 @@ findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
   where n = filter (<loc) ns
         loc = loc' - 1
 
-findLocLen :: [Int] -> (Int,Int) -> String
-findLocLen ns (loc,len) = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ "-" ++ show (loc-last (0:n) + len - 1) ++ ":"
+findLocLen :: [Int] -> (Int,Int) -> T.Text
+findLocLen ns (loc,len) = tShow (length n + 1) <> ":" <> tShow (loc-last (0:n)) <> "-" <> tShow (loc-last (0:n) + len - 1) <> ":"
   where n = filter (<loc) ns
