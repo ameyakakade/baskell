@@ -14,7 +14,7 @@ import           Data.Word
 import           Generator
 
 data State = State {
-    asmOutput           :: [T.Text],
+    asmOutput           :: T.Text,
     count               :: Word,
     registerStates      :: [(Word, Arg, Word)], -- Register, arg, age
     firstTouchToAutoVar :: [Int], -- list of auto vars not yet initialized
@@ -32,7 +32,8 @@ addCount = StateM $ \s -> (s { count = count s + 1, codegenLog = codegenLog s <>
                                ["Count: " <> (T.pack $ show (count s)) <> "\t" <>
                                 (let a = (T.pack $ show (registerStates s)) in "Reg " <> a <> T.replicate (135 - T.length a) (T.singleton ' ')) <> "\t" <>
 
-                                (let a = asmOutput s in if null a then "" else last a)]},())
+                                (let a = asmOutput s in if T.null a then "" else "")]},())
+
 setState :: State -> RegCodegen ()
 setState s = StateM (const (s,())) >>= const addCount
 
@@ -43,13 +44,13 @@ updateState :: (State -> State) -> RegCodegen ()
 updateState f = addCount >>= const (StateM $ \s -> (f s,()))
 
 append :: T.Text -> RegCodegen ()
-append ins = updateState $ \s -> s { asmOutput = asmOutput s <> [ins] }
+append ins = updateState $ \s -> s { asmOutput = asmOutput s <> ins <> "\n" }
 
 gasAArch64 = Target "gasAArch64" False asm
 
 asm :: IRProgram -> IO T.Text
 asm p = do
-    let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [] (variadics p))
+    let s = fst $ runStateM (generateAsm p) (State T.empty 0 [] [] [] (variadics p))
     when False
       $ do
         print $ count s
@@ -58,7 +59,7 @@ asm p = do
         putStrLn "---"
         T.putStr $ T.unlines $ codegenLog s
         putStrLn "---"
-    return $ T.unlines $ asmOutput s
+    return $ asmOutput s
 
 generateAsm :: IRProgram -> RegCodegen ()
 generateAsm p = do
@@ -89,7 +90,7 @@ aGlobalVar vName initData = do
     let as = if null initData
              then [".quad 0"]
              else map (\a -> ".quad " <> aGlobalVarArg a) initData
-    updateState $ \s -> s { asmOutput = asmOutput s <> as }
+    updateState $ \s -> s { asmOutput = asmOutput s <> T.unlines as }
 
 aGlobalVector :: T.Text -> Int -> [Arg] -> RegCodegen ()
 aGlobalVector vName vSize initData = undefined
