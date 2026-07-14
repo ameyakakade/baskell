@@ -7,7 +7,7 @@
 Do "runhaskell Build.hs" to compile the compiler and test utility. The binaries will be in the build folder.
 
 Orignal reference manual for B: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/kbman.html
-There are no third-party dependencies except Base (Haskell standard library).
+There are no third-party dependencies.
 
 ### Parser
 This compiler uses parser combinators. There is no tokenizer, which has increased complexity and decreased usefulness 
