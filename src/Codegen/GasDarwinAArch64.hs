@@ -1,4 +1,4 @@
-module Codegen.GasDarwinAArch64(gasDarwinAArch64) where
+module Codegen.GasDarwinAArch64 where
 import Codegen.Common
 
 import BParser        (BBinary (..))
@@ -7,8 +7,28 @@ import Data.List
 import Data.Maybe
 import Data.Word
 import Generator
+import System.Process
+import Data.Foldable
 
-gasDarwinAArch64 = Target "gasDarwinAArch64" False $ return . asm
+gasDarwinAArch64 = Target
+  "gasDarwinAArch64"
+  buildRecipe
+  
+buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do 
+    traverse_ (\fileName -> do
+               runIfChanged nC [fileName]
+                 (getFileName ".s" fileName)
+                 (compileFile (return . asm) False fileName)
+               runIfChanged nC [getFileName ".s" fileName]
+                 (getFileName ".o" fileName)
+                 (prettyProcess $ readProcessWithExitCode "as"
+                   ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
+             ) sourceFiles
+
+    runIfChanged nC (objectFiles ++ map (getFileName ".o") sourceFiles)
+       (takeWhile (/='.') outputFileName)
+       (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') outputFileName] ++ map (getFileName ".o") sourceFiles ++ objectFiles ++ linkerFlags) "")
+    return ()
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++

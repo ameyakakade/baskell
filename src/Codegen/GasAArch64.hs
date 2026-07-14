@@ -10,6 +10,7 @@ import Data.Foldable
 import Data.List
 import Data.Maybe
 import Data.Word
+import System.Process
 
 data State = State {
     asmOutput           :: [String],
@@ -40,8 +41,26 @@ updateState f = addCount >>= const (StateM $ \s -> (f s,()))
 append :: String -> RegCodegen ()
 append ins = updateState $ \s -> s { asmOutput = asmOutput s ++ [ins] }
 
-gasAArch64 = Target "gasAArch64" False asm
+gasAArch64 = Target
+  "gasAArch64"
+  buildRecipe
+  
+buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do 
+    traverse_ (\fileName -> do
+               runIfChanged nC [fileName]
+                 (getFileName ".s" fileName)
+                 (compileFile asm False fileName)
+               runIfChanged nC [getFileName ".s" fileName]
+                 (getFileName ".o" fileName)
+                 (prettyProcess $ readProcessWithExitCode "as"
+                   ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
+             ) sourceFiles
 
+    runIfChanged nC (objectFiles ++ map (getFileName ".o") sourceFiles)
+       (takeWhile (/='.') outputFileName)
+       (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') outputFileName] ++ map (getFileName ".o") sourceFiles ++ objectFiles ++ linkerFlags) "")
+    return ()
+    
 asm :: IRProgram -> IO String
 asm p = do
     let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [] (variadics p))

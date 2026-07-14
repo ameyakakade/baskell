@@ -138,3 +138,5 @@ ignoreErrorIndex p = Parser $ \input -> do
                                     (Left (Failure err (loc, s))) -> Left (Failure err (fst input, s))
                                     (Left (Error e i)) -> Left (Error e i)
                              else o
+
+-- TODO: Read parsec source code and fix memory usage.

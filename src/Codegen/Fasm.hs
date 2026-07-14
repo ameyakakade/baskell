@@ -1,5 +1,5 @@
 -- Fasm target for x86
-module Codegen.Fasm(fasm, asm) where
+module Codegen.Fasm(fasm) where
 import Codegen.Common
 
 import BParser        (BBinary (..))
@@ -9,7 +9,8 @@ import Data.Maybe
 import Data.Word
 import Generator
 
-fasm = Target "fasm" False $ return . asm
+-- fasm = Target "fasm" False $ return . asm
+fasm = undefined
 
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
