@@ -59,8 +59,8 @@ generateAsm :: IRProgram -> RegCodegen ()
 generateAsm p = do
     aProgramPrologue
     traverse_ aFunction (functions p)
-    aGlobalVarSection (globalVars p)
     traverse_ aNakedFunctionSection (nakedFunctions p)
+    aGlobalVarSection (globalVars p)
     aDataSection (staticData p)
 
 aProgramPrologue :: RegCodegen ()
@@ -221,7 +221,7 @@ aArg arg = do
                  r <- getEmptyRegister
                  append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
-                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]\n"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
                  addRegisterCache arg r
                  return r
              Ref offset -> do
@@ -249,10 +249,10 @@ loadArgIntoReg r arg = case arg of
                                           b2 = shiftR a 16 .&. 0xFFFF
                                           b3 = shiftR a (16*2) .&. 0xFFFF
                                           b4 = shiftR a (16*3) .&. 0xFFFF
-                                      in append $ "MOV X" ++ show r ++ ", #" ++ show b1 ++ "\n" ++
-                                         (if b2 == 0 then "" else "MOVK X" ++ show r ++ ", #" ++ show b2 ++ ", LSL 16\n" ++
-                                           if b3 == 0 then "" else "MOVK X" ++ show r ++ ", #" ++ show b3 ++ ", LSL 32\n" ++
-                                           if b4 == 0 then "" else "MOVK X" ++ show r ++ ", #" ++ show b4 ++ ", LSL 48\n")
+                                      in append $ "MOV X" ++ show r ++ ", #" ++ show b1 ++
+                                         (if b2 == 0 then "" else "\nMOVK X" ++ show r ++ ", #" ++ show b2 ++ ", LSL 16" ++
+                                           if b3 == 0 then "" else "\nMOVK X" ++ show r ++ ", #" ++ show b3 ++ ", LSL 32" ++
+                                           if b4 == 0 then "" else "\nMOVK X" ++ show r ++ ", #" ++ show b4 ++ ", LSL 48")
                          AutoVar autoVarOffset -> loadVarInStack r autoVarOffset
                          Deref autoVarOffset -> do
                              loadArgIntoReg 17 (AutoVar autoVarOffset)
@@ -379,22 +379,22 @@ aBinary binOp loc lArg rArg = do
            return r')
        return maybeInRegister
   append $ case binOp of
-              Add             -> "ADD X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
-              Subtract        -> "SUB X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
-              Multiply        -> "MUL X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
+              Add             -> "ADD X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Subtract        -> "SUB X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Multiply        -> "MUL X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
               Equal           -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
-                                 "CSET X" ++ show r ++ ", EQ\n"
+                                 "CSET X" ++ show r ++ ", EQ"
               NotEqual        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
-                                 "CSET X" ++ show r ++ ", NE\n"
+                                 "CSET X" ++ show r ++ ", NE"
               LessThan        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
-                                 "CSET X" ++ show r ++ ", LT\n"
+                                 "CSET X" ++ show r ++ ", LT"
               MoreThan        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
-                                 "CSET X" ++ show r ++ ", GT\n"
+                                 "CSET X" ++ show r ++ ", GT"
               LessThanOrEqual -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
-                                 "CSET X" ++ show r ++ ", LE\n"
+                                 "CSET X" ++ show r ++ ", LE"
               MoreThanOrEqual -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
-                                 "CSET X" ++ show r ++ ", GE\n"
-              Modulo          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
-                                 "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL ++ "\n"  -- which is q then we do (q*b -a) which is mod
-              Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
-              Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n"
+                                 "CSET X" ++ show r ++ ", GE"
+              Modulo          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++  -- suppose we are doing a%b. x2 holds a/b quotient
+                                 "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL -- which is q then we do (q*b -a) which is mod
+              Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
