@@ -2,8 +2,6 @@ module Main where
 
 import BParser
 import Codegen
-import Codegen.GasAArch64
-import Codegen.GasDarwinAArch64
 import Generator
 import Parser
 
