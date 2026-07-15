@@ -66,8 +66,7 @@ aFunctionPrologue name countParam countAutoVars = "\npublic " ++ name ++ "\n" ++
                                                   "sub rsp, " ++ show stackOffset ++ "\n" ++
                                                   "mov rbp, rsp\n" ++
                                                   if countParam==0 then []
-                                                  else "UNREACHABLE"
-                                                  -- else concat (zipWith storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)])
+                                                  else concat (zipWith storeVarOnStack ["rdi", "rsi", "rdx", "rcs", "r8", "r9"] [0..(countParam - 1)])
     where stackOffset = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
           ccc = (countParam + countAutoVars)*8
 
@@ -101,7 +100,7 @@ aOp funName countParam countAutoVars o = case o of
                                          storeVarOnStack "rax" offset
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg "UNREACHABLE" arg ++ storeVarOnStack "UNREACHABLE" loc
-          MemoryAssign ptrLoc arg -> aArg "UNREACHABLE" arg ++ storeVarInMem 0 ptrLoc
+          MemoryAssign ptrLoc arg -> aArg "UNREACHABLE" arg +
           ExternalAssign loc arg -> aArg "UNREACHABLE" arg ++
                                     "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
                                     "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
