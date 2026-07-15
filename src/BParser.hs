@@ -11,9 +11,10 @@ import Data.Maybe
 
 type BProgram = [BDefinition]
 
-data BDefinition = FDefinition {fName :: BName, fArgs :: [BName], fStatement :: BStatement}
-                 | GlobalVar {vName :: BName, vSize :: Maybe Int, vInit :: [BIVal]}
-                 | NakedFunction {nfName :: BName, nfAsm :: [String]}
+data BDefinition = FDefinition { fName :: BName, fArgs :: [BName], fStatement :: BStatement }
+                 | GlobalVar { vName :: BName, vSize :: Maybe Int, vInit :: [BIVal] }
+                 | NakedFunction { nfName :: BName, nfAsm :: [String] }
+                 | VariadicFunction { vfName :: BName, vfMinArgs :: Int }
                  deriving (Eq, Show)
 
 data BIVal = IConstant BConstant
@@ -408,10 +409,20 @@ bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
               finiteSelectBracketed '(' ')'
                (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> (bNakedStatements <|> bStatement))
-              <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
-              <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
-                      ((charP '[' *> bws *>((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']') <|> bws $> Nothing) <* bws<*>     -- parsing maybe constant
-                      ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal) <|> return []) <* charP ';'-- parsing ivals
+
+               <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
+
+               <|> VariadicFunction <$> (stringP "__variadic__" *> charP '(' *> bws *> bName <* bws) <*>
+               (charP ',' *> bws *> fmap fromJust parseNum <* bws <* charP ')' <* bws <* charP ';')
+
+               <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
+               ((charP '[' *> bws *>
+                 ((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']')
+                 <|> bws $> Nothing)
+               <* bws <*>
+               ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal)
+                <|> return [])
+               <* charP ';'-- parsing ivals
 
 bNakedStatements :: Parser BStatement
 bNakedStatements = fmap Block $ (\x y-> x ++ [y]) <$> tryingRepeatedParser (naked <* bws) <*> bStatement
@@ -424,12 +435,9 @@ bNakedStatements = fmap Block $ (\x y-> x ++ [y]) <$> tryingRepeatedParser (nake
 bProgram :: Parser BProgram
 bProgram = repeatedParser (bws *> bDefinition <* bws)
 
--- TODO: Using ** inside string literals doesnt work as rvalue;
 -- TODO: Investigate if string literals are indexed properly.
 -- TODO: Postpone things like escaping chars and C style assignment to generator.
 --       This way we can turn those things off. Parse all you can and error out in
 --       generator. It still is difficult to turn off C-like one line comments
 
 -- TODO: Block that contains only auto or extrn without following statement should fail
-
--- TODO: Implement variadics

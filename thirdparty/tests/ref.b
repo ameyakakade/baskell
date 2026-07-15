@@ -5,12 +5,13 @@ y;
 test1() {
 	extrn printf;
 	auto x;
+    x = 1;
 
 	write(&x, 69);
 	write(&y, 420);
 
-	// printf("&x: %p*n", &x);
-	// printf("&y: %p*n", &y);
+	/* printf("&x: %p*n", &x); */
+	/* printf("&y: %p*n", &y); */
 
 	printf("x: %d %d %d %d %d*n", x, *&x, &*x, &*&*&*x, *&*&*&x);
 	printf("y: %d %d %d %d %d*n", y, *&y, &*y, &*&*&*y, *&*&*&y);
@@ -35,10 +36,6 @@ test3() {
 	xs[0] = 13;
 	*(xs+W) = 42;
 
-	// "E1[E2] is identical to *(E1+E2)"
-	// "&*x is identically x"
-	// therefore `&E1[E2]` should be identical to `E1+E2`
-	// check generated IR to confirm that
 	printf(
 		"xs: [%d, %d]*n",
 		read(xs),
@@ -50,4 +47,10 @@ main() {
 	test1();
 	test2();
 	test3();
+    return 0;
 }
+
+/* "E1[E2] is identical to *(E1+E2)" */
+/* "&*x is identically x" */
+/* therefore `&E1[E2]` should be identical to `E1+E2` */
+/* check generated IR to confirm that */

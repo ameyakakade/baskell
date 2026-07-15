@@ -10,6 +10,7 @@ import Data.Either
 import Data.List
 import Data.Maybe
 import System.Directory
+import System.Environment
 import System.Exit
 import System.Process
 
@@ -20,63 +21,64 @@ data JsonValue = JsonNull
                  deriving (Show, Eq)
 
 main = do
-  json <- startParser jsonValue <$> readFile "../thirdparty/tests.json"
-  when (isLeft json)
-           (do
-             error "Error in JSON.")
+    [target] <- getArgs
+    json <- startParser jsonValue <$> readFile "../thirdparty/tests.json"
+    when (isLeft json)
+             (do
+               error "Error in JSON.")
 
-  let (Right (JsonArray jsonTree, _)) = json
-  let filteredJsonTree = filter
-                         (\(JsonObject maps) -> let Just (_,JsonString target) = find (\(s,_) -> s=="target") maps
-                                                in target=="gas-aarch64-darwin")
-                         jsonTree
+    let (Right (JsonArray jsonTree, _)) = json
+    let filteredJsonTree = filter
+                           (\(JsonObject maps) -> let Just (_,JsonString target) = find (\(s,_) -> s=="target") maps
+                                                  in target=="gas-aarch64-darwin")
+                           jsonTree
 
-  -- prettyier filteredJsonTree
-  doesFileExist "../build/baskell" >>= (\x -> when x (error "Compiler executable not found.")) . not
-  setCurrentDirectory "../thirdparty/tests/"
-  ls <- traverse testCase filteredJsonTree
-  putStrLn ""
-  putStrLn $ "Passed:   " ++ show (length $ filter (==0) ls)
-  putStrLn $ "Failed:   " ++ show (length $ filter (==2) ls)
-  putStrLn $ "Error:    " ++ show (length $ filter (==1) ls)
-  putStrLn $ "Disabled: " ++ show (length $ filter (==3) ls)
-  return ()
+    -- prettyier filteredJsonTree
+    doesFileExist "../build/baskell" >>= (\x -> when x (error "Compiler executable not found.")) . not
+    setCurrentDirectory "../thirdparty/tests/"
+    ls <- traverse (testCase target) filteredJsonTree
+    putStrLn ""
+    putStrLn $ "Passed:   " ++ show (length $ filter (==0) ls)
+    putStrLn $ "Failed:   " ++ show (length $ filter (==2) ls)
+    putStrLn $ "Error:    " ++ show (length $ filter (==1) ls)
+    putStrLn $ "Disabled: " ++ show (length $ filter (==3) ls)
+    return ()
 
-testCase :: JsonValue -> IO Int
-testCase (JsonObject maps) = do
-  putStrLn ""
-  let caseName = getJsonValue "case"
-  let fileName = caseName ++ ".b"
-  doesFileExist fileName >>= (\x -> when x (putStrLn $ "ERROR: File \"" ++ fileName ++ "\" not found.")) . not
-  if getJsonValue "state"=="Disabled"
-  then do
-    putStrLn $ "Test " ++ fileName ++ " is disabled"
-    return 3
-  else do
-    let comment = getJsonValue "comment"
-    unless (null comment) $ putStrLn $ "Comment: " ++ comment
-    (exit, stdout, stderr) <- readProcessWithExitCode "../../build/baskell" [fileName, "-B"] ""
-    fe <- doesFileExist caseName
-    if exit==ExitSuccess && fe
-    then do
-      putStrLn $ "Compiled " ++ fileName ++ " successfully."
-      (exit, stdout, stderr) <- readProcessWithExitCode ("./"++caseName) [] ""
-      let expectedOut = getJsonValue "expected_stdout"
-      if expectedOut==stdout
+testCase :: String -> JsonValue -> IO Int
+testCase target (JsonObject maps) = do
+    putStrLn ""
+    let caseName = getJsonValue "case"
+    let fileName = caseName ++ ".b"
+    doesFileExist fileName >>= (\x -> when x (putStrLn $ "ERROR: File \"" ++ fileName ++ "\" not found.")) . not
+    if getJsonValue "state"=="Disabled"
       then do
-        putStrLn "Test passed successfully :)"
-        return 0
+        putStrLn $ "Test " ++ fileName ++ " is disabled"
+        return 3
       else do
-        putStrLn $ "FAILED: Couldn't match output " ++ show stdout ++ " with expected output " ++ show expectedOut
-        return 2
-    else do
-      putStrLn $ "ERROR: Could not compile " ++ fileName ++ "."
-      putStr stdout
-      putStr stderr
-      return 1
+        let comment = getJsonValue "comment"
+        unless (null comment) $ putStrLn $ "Comment: " ++ comment
+        (exit, stdout, stderr) <- readProcessWithExitCode "../../build/baskell" [fileName, "-B", target] ""
+        fe <- doesFileExist caseName
+        if exit==ExitSuccess && fe
+          then do
+            putStrLn $ "Compiled " ++ fileName ++ " successfully."
+            (exit, stdout, stderr) <- readProcessWithExitCode ("./"++caseName) [] ""
+            let expectedOut = getJsonValue "expected_stdout"
+            if expectedOut==stdout
+              then do
+                putStrLn "Test passed successfully :)"
+                return 0
+              else do
+                putStrLn $ "FAILED: Couldn't match output " ++ show stdout ++ " with expected output " ++ show expectedOut
+                return 2
+          else do
+            putStrLn $ "ERROR: Could not compile " ++ fileName ++ "."
+            putStr stdout
+            putStr stderr
+            return 1
 
-    where getJsonValue key = let Just (_, JsonString value) = find (\(s,_) -> s==key) maps
-                             in value
+              where getJsonValue key = let Just (_, JsonString value) = find (\(s,_) -> s==key) maps
+                                       in value
 
 jsonValue :: Parser JsonValue
 jsonValue = jsonString <|> jsonObject <|> jsonArray

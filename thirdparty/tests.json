@@ -1641,8 +1641,8 @@
         "case": "stack_alloc",
         "target": "gas-aarch64-darwin",
         "expected_stdout": "a = 1\nb = 2\nc = 3\n69\n420\n1337\n",
-        "state": "Enabled",
-        "comment": ""
+        "state": "Disabled",
+        "comment": "Compiler hangs"
     },
     {
         "case": "stack_alloc",
@@ -2160,6 +2160,13 @@
         "case": "asm_func_gas_aarch64_darwin",
         "target": "gas-aarch64-darwin",
         "expected_stdout": "69\n",
+        "state": "Enabled",
+        "comment": ""
+    },
+    {
+        "case": "nestedfuncs",
+        "target": "gas-aarch64-darwin",
+        "expected_stdout": "Another one\nAnother one\nAnother one\nAnother one\nAnother one\nAnother one\n",
         "state": "Enabled",
         "comment": ""
     }

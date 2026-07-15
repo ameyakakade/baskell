@@ -1,0 +1,419 @@
+module Codegen.GasAArch64 where
+
+import Codegen.Common
+import Generator
+
+import BParser        (BBinary (..))
+import Control.Monad
+import Data.Bits
+import Data.Foldable
+import Data.List
+import Data.Maybe
+import Data.Word
+import System.Process
+
+data State = State {
+    asmOutput           :: [String],
+    count               :: Word,
+    registerStates      :: [(Word, Arg, Word)], -- Register, arg, age
+    firstTouchToAutoVar :: [Int], -- list of auto vars not yet initialized
+    codegenLog          :: [String],
+    aVariadics          :: [(String, Int)]
+    } deriving (Show)
+
+type RegCodegen = StateM State
+
+addCount :: RegCodegen ()
+addCount = StateM $ \s -> (s { count = count s + 1, codegenLog = codegenLog s ++
+                               ["Count: " ++ show (count s) ++ "\t" ++
+                                (let a = show (registerStates s) in "Reg " ++ a ++ replicate (135 - length a) ' ') ++ "\t" ++
+                                (let a = asmOutput s in if null a then "" else last a)]},())
+
+setState :: State -> RegCodegen ()
+setState s = StateM (const (s,())) >>= const addCount
+
+getState :: RegCodegen State
+getState = addCount >>= const (StateM $ \s -> (s,s))
+
+updateState :: (State -> State) -> RegCodegen ()
+updateState f = addCount >>= const (StateM $ \s -> (f s,()))
+
+append :: String -> RegCodegen ()
+append ins = updateState $ \s -> s { asmOutput = asmOutput s ++ [ins] }
+
+gasAArch64 = Target
+  "gasAArch64"
+  buildRecipe
+  
+buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do 
+    traverse_ (\fileName -> do
+               runIfChanged nC [fileName]
+                 (getFileName ".s" fileName)
+                 (compileFile asm False fileName)
+               runIfChanged nC [getFileName ".s" fileName]
+                 (getFileName ".o" fileName)
+                 (prettyProcess $ readProcessWithExitCode "as"
+                   ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
+             ) sourceFiles
+
+    runIfChanged nC (objectFiles ++ map (getFileName ".o") sourceFiles)
+       (takeWhile (/='.') outputFileName)
+       (prettyProcess $ readProcessWithExitCode "gcc" (["-o", takeWhile (/='.') outputFileName] ++ map (getFileName ".o") sourceFiles ++ objectFiles ++ linkerFlags) "")
+    return ()
+    
+asm :: IRProgram -> IO String
+asm p = do
+    let s = fst $ runStateM (generateAsm p) (State [] 0 [] [] [] (variadics p))
+    when False
+      $ do
+        print $ count s
+        print $ registerStates s
+        print $ firstTouchToAutoVar s
+        putStrLn "---"
+        putStr $ unlines $ codegenLog s
+        putStrLn "---"
+    return $ unlines $ asmOutput s
+
+generateAsm :: IRProgram -> RegCodegen ()
+generateAsm p = do
+    aProgramPrologue
+    traverse_ aFunction (functions p)
+    traverse_ aNakedFunctionSection (nakedFunctions p)
+    aGlobalVarSection (globalVars p)
+    aDataSection (staticData p)
+
+aProgramPrologue :: RegCodegen ()
+aProgramPrologue = do
+    append ".text"
+
+aGlobalVarSection :: [(String, Maybe Int, [Arg])] -> RegCodegen ()
+aGlobalVarSection l = do
+    traverse_ (\(s, ms, args) ->
+                if isNothing ms
+                then aGlobalVar s args
+                else aGlobalVector s (fromJust ms) args
+             ) l
+
+aGlobalVar :: String -> [Arg] -> RegCodegen ()
+aGlobalVar vName initData = do
+    append $ ".data"
+    append $ ".global _" ++ vName
+    append $ ".p2align 3 // investigate why this is needed"
+    append $ "_" ++ vName ++ ":"
+    let as = if null initData
+             then [".quad 0"]
+             else map (\a -> ".quad " ++ aGlobalVarArg a) initData
+    updateState $ \s -> s { asmOutput = asmOutput s ++ as }
+
+aGlobalVector :: String -> Int -> [Arg] -> RegCodegen ()
+aGlobalVector vName vSize initData = undefined
+
+aDataSection :: [Word8] -> RegCodegen ()
+aDataSection a = do
+    append $ ".data"
+    append $ ".dat: .byte " ++ intercalate "," (map show a)
+
+aGlobalVarArg :: Arg -> String
+aGlobalVarArg (External a)   = "_" ++ a
+aGlobalVarArg (Literal a)    = show a
+aGlobalVarArg (DataOffset a) = ".dat +" ++ show a
+
+aNakedFunctionSection :: NFunction -> RegCodegen ()
+aNakedFunctionSection (NFunction nfName nfLoc nfBlock) = do
+    append $  ".global _" ++ nfName
+    append $  ".p2align 4"
+    append $ "_" ++ nfName ++ ":"
+    append $  unlines nfBlock
+
+storeVarOnStack :: Int -> Int -> RegCodegen ()
+storeVarOnStack reg offset = append $ "STR X" ++ show reg ++ ", [FP, #" ++ show (offset*8) ++ "]"
+
+loadVarInStack :: Word -> Word -> RegCodegen ()
+loadVarInStack destReg offset = append $ "LDR X" ++ show destReg ++ ", [FP, #" ++ show (offset*8) ++ "]"
+
+storeVarInMem :: Word -> Word -> RegCodegen ()
+storeVarInMem reg ptrReg = do
+    append $ "STR X" ++ show reg ++ ", [X" ++ show ptrReg ++ ", #0]"
+    append $ "; storing variable in memory"
+
+loadVarInMem :: Word -> Word -> RegCodegen ()
+loadVarInMem destReg ptrReg = do
+    append $ "LDR X" ++ show destReg ++ ", [X" ++ show ptrReg ++ ", #0]"
+    append $ "; loading variable in memory"
+
+saveRegisters :: RegCodegen ()
+saveRegisters = do
+    s <- getState
+    traverse_ saveOneRegister (registerStates s)
+    updateState $ \s -> s { registerStates = [] }
+
+saveOneRegister :: (Word, Arg, Word) -> RegCodegen ()
+saveOneRegister (register, arg, age) = case arg of
+                                         AutoVar offset -> storeVarOnStack (fromIntegral register) (fromIntegral offset)
+                                         _ -> return ()
+
+findArgInRegisters :: Arg -> RegCodegen (Maybe Word)
+findArgInRegisters arg = do
+    s <- getState
+    return $ (\(a,_,_) -> a) <$> find (\(_,a,_) -> a==arg) (registerStates s)
+
+getEmptyRegister :: RegCodegen Word
+getEmptyRegister = do
+    s <- fmap registerStates getState
+    let l = length s
+    if l >= 16
+      then do
+        undefined
+      else do
+        let availableRegisters = [x | x<-[0..16], x `notElem` map (\(x, _, _) -> x) s]
+        return $ head availableRegisters
+
+addRegisterCache :: Arg -> Word -> RegCodegen ()
+addRegisterCache arg register = updateState $ \s -> s { registerStates = (register, arg, count s):registerStates s }
+
+isVarTouched :: Word -> RegCodegen Bool
+isVarTouched autoVar = do
+    s <- getState
+    let untouched = fromIntegral autoVar `elem` firstTouchToAutoVar s
+    if untouched
+      then do
+        updateState $ \s -> s { firstTouchToAutoVar = delete (fromIntegral autoVar) (firstTouchToAutoVar s) }
+        return False
+      else return True
+
+aFunction :: Function -> RegCodegen ()
+aFunction f = do
+    aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f)
+    updateState $ \s -> s { registerStates = [], firstTouchToAutoVar = [(paramsCount f)..(paramsCount f + autoVarCount f - 1)] }
+    traverse_ (aOp (funName f) (paramsCount f) (autoVarCount f)) (body f)
+    aFunctionEpilogue (paramsCount f) (autoVarCount f)
+    append ""
+    return ()
+
+aFunctionPrologue :: String -> Int -> Int -> RegCodegen ()
+aFunctionPrologue name countParam countAutoVars = do
+    append $ ".global _" ++ name
+    append $ ".p2align 4"
+    append $ "_" ++ name ++ ":"
+    append $ "STP LR, FP, [SP, #-16]!"
+    append $ "SUB SP, SP, #" ++ show (alignStackOffset $ (countParam + countAutoVars)*8)
+    append $ "MOV FP, SP"
+    if countParam == 0
+      then return ()
+      else zipWithM_ storeVarOnStack [0..(countParam - 1)] [0..(countParam - 1)]
+
+alignStackOffset ccc = if mod ccc 16 == 0 then ccc else div ccc 16*16 + 16
+
+aFunctionEpilogue :: Int -> Int -> RegCodegen ()
+aFunctionEpilogue countParam countAutoVars = do
+    append $ "ADD SP, SP, #" ++ show (alignStackOffset $ (countParam + countAutoVars)*8)
+    append $ "LDP LR, FP, [SP], #16"
+    append $ "RET"
+
+aArg :: Arg -> RegCodegen Word
+aArg arg = do
+    maybeInRegister <- findArgInRegisters arg
+    maybe
+      (case arg of
+             DataOffset doff -> do
+                 r <- getEmptyRegister
+                 loadArgIntoReg r arg
+                 addRegisterCache arg r
+                 return r
+             Literal a -> do
+                 r <- getEmptyRegister
+                 loadArgIntoReg r arg
+                 addRegisterCache arg r
+                 return r
+
+             AutoVar autoVarOffset -> do
+                 r <- getEmptyRegister
+                 loadArgIntoReg r arg
+                 addRegisterCache arg r
+                 return r
+             Deref autoVarOffset -> do
+                 autoVarReg <- aArg (AutoVar autoVarOffset)
+                 r <- getEmptyRegister
+                 loadVarInMem r autoVarReg
+                 return r
+             External name -> do
+                 r <- getEmptyRegister
+                 append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
+                 addRegisterCache arg r
+                 return r
+             Ref offset -> do
+                 saveRegisters -- TODO: Maybe only discard the auto var being dereferenced.
+                 r <- getEmptyRegister
+                 append $ "MOV X" ++ show r ++ ", FP"
+                 append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show (offset*8)
+                 return r
+             RefExternal name -> do
+                 r <- getEmptyRegister
+                 append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                 append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+                 addRegisterCache arg r
+                 return r
+      )
+      return maybeInRegister
+
+loadArgIntoReg :: Word -> Arg -> RegCodegen ()
+loadArgIntoReg r arg = case arg of
+                         DataOffset doff -> do
+                             append $ "ADRP " ++ "X" ++ show r ++ ", .dat@PAGE"
+                             append $ "ADD " ++ "X" ++ show r ++ ", X" ++ show r ++ ", .dat@PAGEOFF"
+                             append $ "ADD " ++ "X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show doff
+                         Literal a -> let b1 = a .&. 0xFFFF
+                                          b2 = shiftR a 16 .&. 0xFFFF
+                                          b3 = shiftR a (16*2) .&. 0xFFFF
+                                          b4 = shiftR a (16*3) .&. 0xFFFF
+                                      in append $ "MOV X" ++ show r ++ ", #" ++ show b1 ++
+                                         (if b2 == 0 then "" else "\nMOVK X" ++ show r ++ ", #" ++ show b2 ++ ", LSL 16" ++
+                                           if b3 == 0 then "" else "\nMOVK X" ++ show r ++ ", #" ++ show b3 ++ ", LSL 32" ++
+                                           if b4 == 0 then "" else "\nMOVK X" ++ show r ++ ", #" ++ show b4 ++ ", LSL 48")
+                         AutoVar autoVarOffset -> loadVarInStack r autoVarOffset
+                         Deref autoVarOffset -> do
+                             loadArgIntoReg 17 (AutoVar autoVarOffset)
+                             loadVarInMem r 17
+                         External name -> do
+                             append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                             append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+                             append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
+                         Ref offset -> do
+                             append $ "MOV X" ++ show r ++ ", FP"
+                             append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show (offset*8)
+                         RefExternal name -> do
+                             append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
+                             append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
+
+aOp :: String -> Int -> Int -> Op -> RegCodegen ()
+aOp funName countParam countAutoVars o = case o of
+          Funcall offset fnLoc fnArgs -> do
+              saveRegisters
+              zipWithM_ loadArgIntoReg [0..] fnArgs
+              case fnLoc of
+                (External s) -> do
+                    c <- getState
+                    let isVariadic = find (\(x, _) -> x == s) (aVariadics c)
+                    maybe
+                      ( do
+                            append $ "BL _" ++ s
+                            addRegisterCache (AutoVar offset) 0
+                      )
+                      (\v -> do
+                            let minArgs = snd v
+                            let ss = alignStackOffset $ (length fnArgs - minArgs)*8
+                            append $ "SUB SP, SP, #" ++ show ss
+                            traverse_
+                              (\r -> append $ "STR X" ++ show r ++ ", [SP, " ++ show ((r-minArgs)*8) ++ "]" )
+                              [minArgs..(length fnArgs - minArgs)]
+                            append $ "BL _" ++ s
+                            addRegisterCache (AutoVar offset) 0
+                            append $ "ADD SP, SP, #" ++ show ss
+                            return ()
+                      )
+                      isVariadic
+                a -> do
+                    loadArgIntoReg 16 a
+                    append "BLR X16"
+                    addRegisterCache (AutoVar offset) 0
+          OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
+          AutoAssign loc arg -> do
+              argR <- aArg arg
+              maybeInRegister <- findArgInRegisters (AutoVar loc)
+              if isJust maybeInRegister
+                then append $ "MOV X" ++ show (fromJust maybeInRegister) ++ ", X" ++ show argR
+                else do
+                  r <- getEmptyRegister
+                  append $ "MOV X" ++ show r ++ ", X" ++ show argR
+                  addRegisterCache (AutoVar loc) r
+          MemoryAssign ptrLoc arg -> do
+              argR <- aArg arg
+              ptrR <- aArg (AutoVar ptrLoc)
+              storeVarInMem argR ptrR
+          ExternalAssign loc arg -> do
+              argR <- aArg arg
+              r <- getEmptyRegister
+              append $ "ADRP X" ++ show r ++ ", _" ++ loc ++ "@GOTPAGE"
+              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ loc ++ "@GOTPAGEOFF]"
+              append $ "STR X" ++ show argR ++ ", [X" ++ show r ++ ", #0]\n"
+          Index dest ptsArg offsetArg -> do
+              ptrR <- aArg ptsArg
+              offsetR <- aArg offsetArg
+              tempR <- getEmptyRegister
+              append $ "MOV X" ++ show tempR ++ ", #8"
+              append $ "MUL X" ++ show tempR ++ ", X" ++ show offsetR ++ ", X" ++ show tempR
+              append $ "ADD X" ++ show tempR ++ ", X" ++ show ptrR ++ ", X" ++ show tempR
+              maybeInRegister <- findArgInRegisters (AutoVar dest)
+              if isJust maybeInRegister
+                then append $ "MOV X" ++ show (fromJust maybeInRegister) ++ ", X" ++ show tempR
+                else addRegisterCache (AutoVar dest) tempR
+          Label labelN -> do
+              saveRegisters
+              append $ funName ++ show labelN ++ ":"
+          JmpLabel labelN -> do
+              saveRegisters
+              append $ "B " ++ funName ++ show labelN
+          JmpIfZeroLabel labelN arg -> do
+              condR <- aArg arg
+              append $ "CMP X" ++ show condR ++ ", #0"
+              saveRegisters
+              append $ "B.EQ " ++ funName ++ show labelN
+          Return Nothing -> aFunctionEpilogue countParam countAutoVars
+          Return (Just arg) -> do
+              saveRegisters
+              loadArgIntoReg 0 arg
+              aFunctionEpilogue countParam countAutoVars
+          UnaryNot dest arg -> do
+              r <- aArg arg
+              append $ "CMP X" ++ show r ++ ", #0"
+              append $ "CSET X" ++ show r ++ ", EQ"
+              append $ "CSET X" ++ show r ++ ", EQ"
+              addRegisterCache (AutoVar dest) r
+          Negate dest arg -> do
+              r <- aArg arg
+              append $ "NEG X" ++ show r ++ ", X" ++ show r
+              addRegisterCache (AutoVar dest) r
+          Asm a -> do
+              saveRegisters
+              traverse_ append a
+          NoOp (UpdateStack size) -> do
+              s <- registerStates <$> getState
+              let b = filter (\(_,a,_) -> case a of
+                                            AutoVar a -> a < size
+                                            Deref a   -> a < size
+                                            _         -> True
+                             ) s
+              updateState (\s -> s { registerStates = b })
+
+aBinary :: BinOp -> Word -> Arg -> Arg -> RegCodegen ()
+aBinary binOp loc lArg rArg = do
+  argL <- aArg lArg
+  argR <- aArg rArg
+  maybeInRegister <- findArgInRegisters (AutoVar loc)
+  r <- maybe
+       (do r' <- getEmptyRegister
+           addRegisterCache (AutoVar loc) r'
+           return r')
+       return maybeInRegister
+  append $ case binOp of
+              Add             -> "ADD X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Subtract        -> "SUB X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Multiply        -> "MUL X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Equal           -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
+                                 "CSET X" ++ show r ++ ", EQ"
+              NotEqual        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
+                                 "CSET X" ++ show r ++ ", NE"
+              LessThan        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
+                                 "CSET X" ++ show r ++ ", LT"
+              MoreThan        -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
+                                 "CSET X" ++ show r ++ ", GT"
+              LessThanOrEqual -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
+                                 "CSET X" ++ show r ++ ", LE"
+              MoreThanOrEqual -> "CMP X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++
+                                 "CSET X" ++ show r ++ ", GE"
+              Modulo          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++  -- suppose we are doing a%b. x2 holds a/b quotient
+                                 "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL -- which is q then we do (q*b -a) which is mod
+              Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR

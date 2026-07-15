@@ -4,6 +4,6 @@ add __asm__(
 );
 
 main() {
-    extrn printf2; // TODO: Replace printf2
-    printf2("%d*n", add(34, 35));
+    extrn printf;
+    printf("%d*n", add(34, 35));
 }

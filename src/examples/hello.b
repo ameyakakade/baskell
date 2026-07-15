@@ -1,5 +1,7 @@
+__variadic__(printf, 1);
+
 main(){
-    extrn write,exit;
-    write("Hello, World*n", 13);
-    exit(0);
+    extrn printf;
+    printf("Hello, World %d %d %d*n", 4, 5, 9);
+    return 0;
 }

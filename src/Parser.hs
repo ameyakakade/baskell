@@ -1,7 +1,7 @@
 module Parser where
 
-import Data.Char
 import Control.Applicative
+import Data.Char
 import Data.Either
 
 --           loc  input
@@ -14,48 +14,48 @@ data ParserError = Failure [String] Input
                    deriving (Show)
 
 instance Functor Parser where
-  fmap f (Parser p) = Parser $ \input -> do
-    (a, restIn) <- p input
-    return (f a, restIn)
+    fmap f (Parser p) = Parser $ \input -> do
+        (a, restIn) <- p input
+        return (f a, restIn)
 
 instance Applicative Parser where
-  pure x = Parser $ \input -> Right (x, input) 
-  (<*>) (Parser f) (Parser p) = Parser $ \input -> do
-    (f, input') <- f input
-    (a, input'') <- p input'
-    return (f a, input'')
+    pure x = Parser $ \input -> Right (x, input)
+    (<*>) (Parser f) (Parser p) = Parser $ \input -> do
+        (f, input') <- f input
+        (a, input'') <- p input'
+        return (f a, input'')
 
 instance Alternative Parser where
-  empty = Parser $ \input -> Left (Failure ["Failed parser."] input)
-  (Parser p1) <|> (Parser p2) = Parser $ \input -> p1 input <|> p2 input
+    empty = Parser $ \input -> Left (Failure ["Failed parser."] input)
+    (Parser p1) <|> (Parser p2) = Parser $ \input -> p1 input <|> p2 input
 
 instance Alternative (Either ParserError) where
-  empty = Left (Failure [] (0,"UNREACHABLE"))
-  (Right a) <|> _ = Right a 
-  (Left  (Failure a e)) <|> (Right b) = Right b
-  (Left (Error e i)) <|> _ = Left (Error e i)
-  _ <|> (Left (Error e i)) = Left (Error e i)
-  (Left (Failure e1 (c1, s1))) <|> (Left (Failure e2 (c2, s2))) = if c1 >= c2 -- return the failure which parsed the most
-                                                            then Left (Failure e1 (c1, s1))
-                                                            else Left (Failure e2 (c2, s2))
+    empty = Left (Failure [] (0,"UNREACHABLE"))
+    (Right a) <|> _ = Right a
+    (Left  (Failure a e)) <|> (Right b) = Right b
+    (Left (Error e i)) <|> _ = Left (Error e i)
+    _ <|> (Left (Error e i)) = Left (Error e i)
+    (Left (Failure e1 (c1, s1))) <|> (Left (Failure e2 (c2, s2))) = if c1 >= c2 -- return the failure which parsed the most
+                                                                    then Left (Failure e1 (c1, s1))
+                                                                    else Left (Failure e2 (c2, s2))
 
 instance Monad Parser where
     Parser p >>= f = Parser $ \input -> do
-                        (a, restIn) <- p input
-                        let (Parser np) = f a
-                        np restIn
+        (a, restIn) <- p input
+        let (Parser np) = f a
+        np restIn
 
 newErr :: String -> Parser a -> Parser a
 newErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
-  where replace (Right a) = Right a
+  where replace (Right a)                 = Right a
         replace (Left (Failure oldErr a)) = Left (Failure (newError:oldErr) a)
-        replace (Left (Error s i)) = Left (Error s i)
+        replace (Left (Error s i))        = Left (Error s i)
 
 replaceErr :: String -> Parser a -> Parser a
 replaceErr newError (Parser oldP) = Parser $ \input -> replace $ oldP input
-  where replace (Right a) = Right a
+  where replace (Right a)                 = Right a
         replace (Left (Failure oldErr a)) = Left (Failure [newError] a)
-        replace (Left (Error s i)) = Left (Error s i)
+        replace (Left (Error s i))        = Left (Error s i)
 
 failureToError :: String -> Parser a -> Parser a
 failureToError newError (Parser oldP) = Parser $ \input -> replace $ oldP input
@@ -138,3 +138,5 @@ ignoreErrorIndex p = Parser $ \input -> do
                                     (Left (Failure err (loc, s))) -> Left (Failure err (fst input, s))
                                     (Left (Error e i)) -> Left (Error e i)
                              else o
+
+-- TODO: Read parsec source code and fix memory usage.

@@ -2,8 +2,8 @@
 test1();
 
 // https://github.com/tsoding/b/issues/210
-test2() auto a; extrn printf1; printf1("HELO*n");
-// TODO: Switch back to printf once implemented
+test2() auto a; extrn printf; printf("HELO*n");
+
 
 main() {
 	test1();
