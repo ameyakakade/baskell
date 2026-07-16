@@ -106,15 +106,15 @@ storeVarOnStack reg offset = "mov [rbp + " ++ show (offset*8) ++ "], " ++ reg ++
 loadVarInStack :: String -> Int -> String
 loadVarInStack destReg offset = "mov " ++ destReg ++ ", [rbp + " ++ show (offset*8) ++ "]\n"
 
-storeVarInMem :: Int -> Int -> String
-storeVarInMem reg ptrOffset = loadVarInStack undefined ptrOffset ++
-                              "STR X" ++ show reg ++ ", [X" ++ show (reg+1) ++ ", #0]"
-                              ++ "\n; storing variable in memory"
+storeVarInMem :: String -> Int -> String
+storeVarInMem reg ptrOffset = loadVarInStack "r9" ptrOffset ++
+                              "mov [r9], " ++ reg ++
+                              "\n; storing variable in memory"
 
-loadVarInMem :: Int -> Int -> String
-loadVarInMem destReg ptrOffset = loadVarInStack undefined ptrOffset ++
-                                 "LDR X0, [X" ++ show destReg ++ ", #0]\n"
-                                 ++ "\n; loading variable in memory\n"
+loadVarInMem :: String -> Int -> String
+loadVarInMem destReg ptrOffset = loadVarInStack "r9" ptrOffset ++
+                                 "mov " ++ destReg ++ ", [r9]" ++
+                                 "\n; loading variable in memory\n"
 
 aOp :: String -> Int -> Int -> Op -> String
 aOp funName countParam countAutoVars o = case o of
@@ -123,7 +123,7 @@ aOp funName countParam countAutoVars o = case o of
                                          storeVarOnStack "rax" (fromIntegral offset)
           OpBin operator resultAutoVar lhs rhs -> aBinary operator resultAutoVar lhs rhs
           AutoAssign loc arg -> aArg "rax" arg ++ storeVarOnStack "rax" (fromIntegral loc)
-          MemoryAssign ptrLoc arg -> aArg "UNREACHABLE" arg
+          MemoryAssign ptrLoc arg -> aArg "rax" arg ++ storeVarInMem "rax" (fromIntegral ptrLoc)
           ExternalAssign loc arg -> aArg "UNREACHABLE" arg ++
                                     "ADRP X1, _" ++ loc ++ "@GOTPAGE\n" ++
                                     "LDR X1, [X1, _" ++ loc ++ "@GOTPAGEOFF]\n" ++
@@ -159,7 +159,7 @@ aArg reg arg = case arg of
                                 "add " ++ reg ++ ", " ++ show doff ++ "\n"
              Literal a -> "mov " ++ reg ++ ", " ++ show a ++ "\n"
              AutoVar autoVarOffset -> loadVarInStack reg (fromIntegral autoVarOffset)
-             Deref autoVarOffset -> loadVarInMem 0 (fromIntegral autoVarOffset)
+             Deref autoVarOffset -> loadVarInMem reg (fromIntegral autoVarOffset)
              External name -> "ADRP X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGE\n" ++
                               "LDR X" ++ show reg ++ ", [X" ++ show reg ++ ", _" ++ name ++ "@GOTPAGEOFF]\n" ++
                               "LDR X" ++ show reg ++ ", [X" ++ show reg ++ "]\n"
@@ -184,7 +184,7 @@ aBinary binOp resultLoc lArg rArg = aArg "rax" lArg ++
                                                          "CSET X0, GE\n"
                                       Modulo          -> "SDIV X0, X1, X2\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
                                                          "MSUB X0, X0, X2, X1\n"  -- which is q then we do (q*b -a) which is mod
-                                      Or              -> "ORR X0, X1, X2\n"
+                                      Or              -> "or rax, rbx\n"
                                       Divide          -> "SDIV X0, X1, X2\n"
                                     ) ++
                                     storeVarOnStack "rax" (fromIntegral resultLoc)
