@@ -134,10 +134,10 @@ aOp funName countParam countAutoVars o = case o of
                                          "ADD X0, X1, X2\n" ++
                                          storeVarOnStack "UNREACHABLE" (fromIntegral dest)
           Label labelN -> funName ++ show labelN ++ ":"
-          JmpLabel labelN -> "B " ++ funName ++ show labelN
-          JmpIfZeroLabel labelN arg -> aArg "UNREACHABLE" arg ++
-                                      "CMP X0, #0\n" ++
-                                      "B.EQ " ++ funName ++ show labelN
+          JmpLabel labelN -> "jmp " ++ funName ++ show labelN
+          JmpIfZeroLabel labelN arg -> aArg "rax" arg ++
+                                      "cmp rax, 0\n" ++
+                                      "je " ++ funName ++ show labelN
           Return Nothing -> aFunctionEpilogue countParam countAutoVars
           Return (Just arg) -> aArg "rax" arg ++
                                aFunctionEpilogue countParam countAutoVars
@@ -171,13 +171,16 @@ aBinary binOp resultLoc lArg rArg = aArg "rax" lArg ++
                                       Add             -> "add rax, rbx\n"
                                       Subtract        -> "sub rax, rbx\n"
                                       Multiply        -> "imul rax, rbx\n"
-                                      Equal           -> "cmp rax, rbx\n" ++ undefined
+                                      Equal           -> "cmp rax, rbx\n" ++
+                                                         "sete al\n" ++
+                                                         "movzx rax, al\n"
                                       NotEqual        -> "CMP X1, X2\n" ++
                                                          "CSET X0, NE\n"
                                       LessThan        -> "CMP X1, X2\n" ++
                                                          "CSET X0, LT\n"
-                                      MoreThan        -> "CMP X1, X2\n" ++
-                                                         "CSET X0, GT\n"
+                                      MoreThan        -> "cmp rax, rbx\n" ++
+                                                         "seta al\n" ++
+                                                         "movzx rax, al\n"
                                       LessThanOrEqual -> "CMP X1, X2\n" ++
                                                          "CSET X0, LE\n"
                                       MoreThanOrEqual -> "CMP X1, X2\n" ++
