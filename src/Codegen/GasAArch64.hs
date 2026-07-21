@@ -48,7 +48,7 @@ gasAArch64 = Target
 buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do 
     traverse_ (\fileName -> do
                runIfChanged nC [fileName]
-                 getFileName ".s" fileName)
+                 (getFileName ".s" fileName)
                  (compileFile asm False fileName)
                runIfChanged nC [getFileName ".s" fileName]
                  (getFileName ".o" fileName)
