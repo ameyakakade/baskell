@@ -6,7 +6,7 @@ import BParser
 import Control.Applicative
 import Control.Monad.Fix
 import Data.Char
-import Data.Foldable
+import Data.Foldable (traverse_)
 import Data.Function
 import Data.List
 import Data.Maybe

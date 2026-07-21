@@ -10,8 +10,6 @@ import System.Exit
 import Parser
 import BParser
 
-import GHC.Internal.IO.Exception
-
 data Target = Target {
     targetName          :: String,
     targetBuildRecipe   :: Bool -> String -> [String] -> [String] -> [String] -> IO ()
