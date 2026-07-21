@@ -1,4 +1,3 @@
-{-# LANGUAGE RecursiveDo #-}
 -- this will generate IR code from AST.
 
 module Generator where
@@ -114,10 +113,6 @@ instance Monad Compiler where
     x >>= y = Compiler $ \c -> let (cs, input) = runCompiler x c
                                in runCompiler (y input) cs
 
-instance MonadFix Compiler where
-  mfix f = Compiler $ \c -> let (cs, a) = runCompiler (f a) c
-                            in (cs, a)
-
 setCompiler :: CompilerState -> Compiler ()
 setCompiler cs = Compiler $ const (cs,())
 
@@ -129,6 +124,12 @@ updateCompiler f = Compiler $ \c -> (f c,())
 
 newLabel :: Compiler Word
 newLabel = Compiler $ \c -> (c { functionBody = functionBody c ++ [Label (functionLabelCount c)], functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
+
+getLabel :: Compiler Word
+getLabel = Compiler $ \c -> (c { functionLabelCount = functionLabelCount c + 1 }, functionLabelCount c )
+
+setLabel :: Word -> Compiler ()
+setLabel lc = Compiler $ \c -> (c { functionBody = functionBody c ++ [Label lc] }, ())
 
 allocateAutoVariable :: Word -> Compiler Word
 allocateAutoVariable sizeToAlloc = Compiler $ \c -> let count = cAutoVarCount c + sizeToAlloc
@@ -277,31 +278,33 @@ gBlock ss = do
     updateStack stackSize
 
 gWhile :: BRValue -> BStatement -> Compiler ()
-gWhile cond st = mdo
+gWhile cond st = do
     label <- newLabel
     condArg <- gRValue cond
+    exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
     gStatement st
     addOp (JmpLabel label)
-    exitLabel <- newLabel
-    return ()
+    setLabel exitLabel
 
 gIfElse :: BRValue -> BStatement -> Maybe BStatement -> Compiler ()
-gIfElse cond tst Nothing = mdo
+gIfElse cond tst Nothing = do
     condArg <- gRValue cond
+    exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
     gStatement tst
-    exitLabel <- newLabel
-    return ()
+    setLabel exitLabel
 
-gIfElse cond tst (Just fst) = mdo
+gIfElse cond tst (Just fst) = do
     condArg <- gRValue cond
+    enterElseLabel <- getLabel
     addOp (JmpIfZeroLabel enterElseLabel condArg)
     gStatement tst
+    exitAfterElseLabel <- getLabel
     addOp (JmpLabel exitAfterElseLabel)
-    enterElseLabel <- newLabel
+    setLabel enterElseLabel
     gStatement fst
-    exitAfterElseLabel <- newLabel
+    setLabel exitAfterElseLabel
     return ()
 
 gRValue :: BRValue -> Compiler Arg
@@ -402,17 +405,19 @@ gUnary op r = do
     return $ AutoVar resultAutoVar
 
 gTernary :: BRValue -> BRValue -> BRValue -> Compiler Arg
-gTernary cond t f = mdo
+gTernary cond t f = do
     resultAutoVar <- allocateAutoVariable 1
     condArg <- gRValue cond
+    falseLabel <- getLabel
     addOp (JmpIfZeroLabel falseLabel condArg)
     tArg <- gRValue t
     addOp (AutoAssign resultAutoVar tArg)
+    exitFalseLabel <- getLabel
     addOp (JmpLabel exitFalseLabel)
-    falseLabel <- newLabel
+    setLabel falseLabel
     fArg <- gRValue f
     addOp (AutoAssign resultAutoVar fArg)
-    exitFalseLabel <- newLabel
+    setLabel exitFalseLabel
     cs <- getCompiler
     return (AutoVar resultAutoVar)
 
@@ -429,19 +434,20 @@ gIncDec l op post = do
     else gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
 
 gSwitch :: BRValue -> BStatement -> Compiler ()
-gSwitch expr statement = mdo
+gSwitch expr statement = do
     exprArg <- gRValue expr
+    enterSwitch <- getLabel
     addOp (JmpLabel enterSwitch)
     updateCompiler (\c -> c { switchStack = []:switchStack c})
     gStatement statement
+    outLabel <- getLabel
     addOp (JmpLabel outLabel)
-    enterSwitch <- newLabel
+    setLabel enterSwitch
     c <- getCompiler
     let cases = head $ switchStack c
     traverse_ (gCompareCase exprArg) cases
-    outLabel <- newLabel
+    setLabel outLabel
     updateCompiler (\c -> c { switchStack = drop 1 $ switchStack c})
-    return ()
 
 gCompareCase :: Arg -> (BConstant, Word) -> Compiler ()
 gCompareCase exprArg (const, label) = do
