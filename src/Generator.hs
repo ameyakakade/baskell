@@ -431,8 +431,26 @@ gIncDec l op post = do
 gSwitch :: BRValue -> BStatement -> Compiler ()
 gSwitch expr statement = mdo
     exprArg <- gRValue expr
+    addOp (JmpLabel enterSwitch)
+    updateCompiler (\c -> c { switchStack = []:switchStack c})
     gStatement statement
+    addOp (JmpLabel outLabel)
+    enterSwitch <- newLabel
+    c <- getCompiler
+    let cases = head $ switchStack c
+    traverse_ (gCompareCase exprArg) cases
+    outLabel <- newLabel
+    updateCompiler (\c -> c { switchStack = drop 1 $ switchStack c})
     return ()
+
+gCompareCase :: Arg -> (BConstant, Word) -> Compiler ()
+gCompareCase exprArg (const, label) = do
+    stackSize <- getStackSize
+    constArg <- gConstant const
+    resultAutoVar <- allocateAutoVariable 1
+    addOp (OpBin NotEqual resultAutoVar exprArg constArg)
+    addOp (JmpIfZeroLabel label (AutoVar resultAutoVar))
+    updateStack stackSize
 
 gCase :: Int -> BConstant -> BStatement -> Compiler ()
 gCase loc const statement = do
@@ -440,7 +458,9 @@ gCase loc const statement = do
     if null $ switchStack c
       then updateCompiler (\c -> c { errors = errors c ++ [GenError ("Case " ++ show const ++ " is not inside a switch statement.") (Just (loc, 0))] })
       else do
-        addOp (NoOp $ Comment ("This case has constant: " ++ show const))
+        label <- newLabel
+        let clpair = (const, label)
+        updateCompiler (\c -> let ss = switchStack c in c { switchStack = (clpair:head ss):(drop 1 $ ss)})
         gStatement statement
 
 getAddress :: BLValue -> Compiler Arg
