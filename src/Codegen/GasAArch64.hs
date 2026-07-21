@@ -48,7 +48,7 @@ gasAArch64 = Target
 buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do 
     traverse_ (\fileName -> do
                runIfChanged nC [fileName]
-                 (getFileName ".s" fileName)
+                 getFileName ".s" fileName)
                  (compileFile asm False fileName)
                runIfChanged nC [getFileName ".s" fileName]
                  (getFileName ".o" fileName)
@@ -185,7 +185,7 @@ aFunction :: Function -> RegCodegen ()
 aFunction f = do
     aFunctionPrologue (funName f) (paramsCount f) (autoVarCount f)
     updateState $ \s -> s { registerStates = [], firstTouchToAutoVar = [(paramsCount f)..(paramsCount f + autoVarCount f - 1)] }
-    traverse_ (aOp (funName f) (paramsCount f) (autoVarCount f)) (body f)
+    aOp (funName f) (paramsCount f) (autoVarCount f) (body f)
     aFunctionEpilogue (paramsCount f) (autoVarCount f)
     append ""
     return ()
@@ -287,8 +287,14 @@ loadArgIntoReg r arg = case arg of
                              append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                              append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
 
-aOp :: String -> Int -> Int -> Op -> RegCodegen ()
-aOp funName countParam countAutoVars o = case o of
+aOp :: String -> Int -> Int -> [Op] -> RegCodegen ()
+aOp _ _ _ [] = return ()
+aOp funName countParam countAutoVars (op:ops) = do
+    aSingleOp funName countParam countAutoVars op
+    aOp funName countParam countAutoVars ops
+
+aSingleOp :: String -> Int -> Int -> Op -> RegCodegen ()
+aSingleOp funName countParam countAutoVars o = case o of
           Funcall offset fnLoc fnArgs -> do
               saveRegisters
               zipWithM_ loadArgIntoReg [0..] fnArgs

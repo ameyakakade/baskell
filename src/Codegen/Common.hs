@@ -82,11 +82,16 @@ compileFile target dumpInfo fileName = do
             let irp = gProgram r
             when dumpInfo (do
                             putStrLn "\nIR:"
-                            prettyier irp)
+                            prettyier $ functions $ snd irp
+                            -- prettyier $ nakedFunctions $ snd irp
+                            -- prettyier $ globalVars $ snd irp    
+                            prettyier $ extrns $ snd irp
+                            -- prettyier $ variadics $ snd irp
+                          )
             asmo <- target (snd irp)
-            when dumpInfo (do
-                  putStrLn "\nASM:"
-                  putStrLn asmo)
+            -- when dumpInfo (do
+            --       putStrLn "\nASM:"
+            --       putStrLn asmo)
             if null (fst irp)
             then do
               writeFile (getFileName ".s" fileName) asmo
@@ -120,5 +125,7 @@ findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
         loc = loc' - 1
 
 findLocLen :: [Int] -> (Int,Int) -> String
-findLocLen ns (loc,len) = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ "-" ++ show (loc-last (0:n) + len - 1) ++ ":"
+findLocLen ns (loc,len) = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ suff
   where n = filter (<loc) ns
+        suff = if len==0 then ":"
+               else "-" ++ show (loc-last (0:n) + len - 1) ++ ":"

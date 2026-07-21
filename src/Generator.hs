@@ -23,8 +23,9 @@ data Arg = AutoVar     Word
          | DataOffset  Word
          deriving (Eq, Show)
 
-newtype NoOps = UpdateStack Word -- stack size
-              deriving (Eq, Show)
+data NoOps = UpdateStack Word -- stack size
+           | Comment String
+           deriving (Eq, Show)
 
 type BinOp = BBinary
 
@@ -93,12 +94,13 @@ data CompilerState = CompilerState {
       functionBody        :: [Op],
       functionBlocksCount :: Word,
       functionLabelCount  :: Word,
+      switchStack         :: [[(BConstant, Word)]], -- (constant, label to jump to)
 
       cAutoVarCount       :: Word,
       cAutoVarCountMax    :: Word
       } deriving (Eq, Show)
 
-emptyCompiler = CompilerState (IRProgram [] [] [] [] [] [("printf", 1)]) [] [[]] [] [] 0 0 0 0
+emptyCompiler = CompilerState (IRProgram [] [] [] [] [] [("printf", 1)]) [] [[]] [] [] 0 0 [] 0 0
 
 newtype Compiler a = Compiler { runCompiler :: CompilerState -> (CompilerState, a) } deriving (Functor)
 
@@ -139,8 +141,13 @@ getStackSize = cAutoVarCount <$> getCompiler
 
 updateStack :: Word -> Compiler ()
 updateStack previousStackSize = do
-    updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
-    addOp (NoOp (UpdateStack previousStackSize))
+    let op = NoOp (UpdateStack previousStackSize)
+    c <- getCompiler
+    if last (functionBody c) == op
+      then return ()
+      else do
+        updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
+        addOp op
 
 addOp :: Op -> Compiler ()
 addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }
@@ -243,21 +250,23 @@ gFunction bname args block = do
 
 gStatement :: BStatement -> Compiler ()
 gStatement statement = case statement of
-                         Block   a            -> gBlock a
-                         Extrn   a            -> gExtrn a
-                         Auto    a            -> gAuto (map (\(x,y)->(x,fmap fromIntegral y)) a)
-                         While   cond st      -> gWhile cond st
-                         SRValue a            -> do
+                         Block   a                -> gBlock a
+                         Extrn   a                -> gExtrn a
+                         Auto    a                -> gAuto (map (\(x,y)->(x,fmap fromIntegral y)) a)
+                         While   cond st          -> gWhile cond st
+                         SRValue a                -> do
                                         stackSize <- getStackSize
                                         gRValue a
                                         updateStack stackSize
-                         IfElse  cond tst fst -> gIfElse cond tst fst
-                         BReturn (Just a)     -> do
+                         IfElse  cond tst fst     -> gIfElse cond tst fst
+                         BReturn (Just a)         -> do
                                         rArg <- gRValue a
                                         addOp (Return $ Just rArg)
-                         BReturn Nothing      -> addOp (Return Nothing)
-                         InlineAsm a          -> addOp (Asm a)
-                         Empty                -> pure ()
+                         BReturn Nothing          -> addOp (Return Nothing)
+                         InlineAsm a              -> addOp (Asm a)
+                         Switch expr block        -> gSwitch expr block
+                         Case loc const statement -> gCase loc const statement
+                         Empty                    -> pure ()
 
 gBlock :: [BStatement] -> Compiler ()
 gBlock ss = do
@@ -418,6 +427,21 @@ gIncDec l op post = do
       addOp (AutoAssign resultAutoVar lArg)
       gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
     else gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
+
+gSwitch :: BRValue -> BStatement -> Compiler ()
+gSwitch expr statement = mdo
+    exprArg <- gRValue expr
+    gStatement statement
+    return ()
+
+gCase :: Int -> BConstant -> BStatement -> Compiler ()
+gCase loc const statement = do
+    c <- getCompiler
+    if null $ switchStack c
+      then updateCompiler (\c -> c { errors = errors c ++ [GenError ("Case " ++ show const ++ " is not inside a switch statement.") (Just (loc, 0))] })
+      else do
+        addOp (NoOp $ Comment ("This case has constant: " ++ show const))
+        gStatement statement
 
 getAddress :: BLValue -> Compiler Arg
 getAddress (Dereference rVal) = gRValue rVal
