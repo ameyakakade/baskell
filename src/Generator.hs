@@ -144,7 +144,7 @@ updateStack :: Word -> Compiler ()
 updateStack previousStackSize = do
     let op = NoOp (UpdateStack previousStackSize)
     c <- getCompiler
-    if last (functionBody c) == op
+    if last (functionBody c) /= op
       then return ()
       else do
         updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
@@ -305,7 +305,6 @@ gIfElse cond tst (Just fst) = do
     setLabel enterElseLabel
     gStatement fst
     setLabel exitAfterElseLabel
-    return ()
 
 gRValue :: BRValue -> Compiler Arg
 gRValue rvalue = case rvalue of
@@ -380,12 +379,22 @@ gConstant :: BConstant -> Compiler Arg
 gConstant constantValue = case constantValue of
                               Digit a -> return $ Literal $ fromIntegral a
                               CharConst a -> return $ Literal $ fromIntegral $ ord a
+                              HexConst a -> return $ Literal $ fromIntegral $ stringToHex a
                               Chars a -> do
                                 oldProgram <- program <$> getCompiler
                                 let oldStaticData = staticData oldProgram
                                 let dataLength = (fromIntegral . length) oldStaticData
                                 updateCompiler $ \c -> c { program = oldProgram { staticData = oldStaticData ++ fmap (fromIntegral . ord) a ++ [0] } }
                                 return (DataOffset dataLength)
+
+stringToHex :: String -> Int
+stringToHex [] = 0
+stringToHex (n:ns) = (r n)*16 + (stringToHex ns)
+  where r c = if c > '9'
+              then if c > 'F'
+                   then ord c - ord 'a' + 10
+                   else ord c - ord 'A' + 10
+              else ord c - ord '0'
 
 gBinary :: BRValue -> BBinary -> BRValue -> Compiler Arg
 gBinary l op r = do
