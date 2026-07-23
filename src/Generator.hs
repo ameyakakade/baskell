@@ -145,13 +145,10 @@ updateStack previousStackSize = do
     let op = NoOp (UpdateStack previousStackSize)
     c <- getCompiler
     updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
-    --if cAutoVarCount c < previousStackSize
-      --then addOp (NoOp $ (Comment "WARNING: Increasing the stack"))
-      --else return ()
-    --if (not (null (functionBody c))) && (last (functionBody c) == op)
-      --then return ()
-      --else do
-        --addOp op
+    if (not (null (functionBody c))) && (last (functionBody c) == op)
+      then return ()
+      else do
+        addOp op
 
 addOp :: Op -> Compiler ()
 addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }

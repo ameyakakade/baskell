@@ -391,6 +391,7 @@ aSingleOp funName countParam countAutoVars o = case o of
                                             _         -> True
                              ) s
               updateState (\s -> s { registerStates = b })
+          NoOp _ -> return ()
 
 aBinary :: BinOp -> Word -> Arg -> Arg -> RegCodegen ()
 aBinary binOp loc lArg rArg = do
