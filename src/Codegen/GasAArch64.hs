@@ -225,35 +225,37 @@ aArg arg = do
                  loadArgIntoReg r arg
                  addRegisterCache arg r
                  return r
-
              AutoVar autoVarOffset -> do
                  r <- getEmptyRegister
                  loadArgIntoReg r arg
                  addRegisterCache arg r
                  return r
              Deref autoVarOffset -> do
+                 saveRegisters
                  autoVarReg <- aArg (AutoVar autoVarOffset)
                  r <- getEmptyRegister
                  loadVarInMem r autoVarReg
+                 addRegisterCache Dummy r
                  return r
              External name -> do
                  r <- getEmptyRegister
                  append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ "]"
-                 addRegisterCache arg r
+                 addRegisterCache Dummy r
                  return r
              Ref offset -> do
                  saveRegisters -- TODO: Maybe only discard the auto var being dereferenced.
                  r <- getEmptyRegister
                  append $ "MOV X" ++ show r ++ ", FP"
                  append $ "ADD X" ++ show r ++ ", X" ++ show r ++ ", #" ++ show (offset*8)
+                 addRegisterCache Dummy r
                  return r
              RefExternal name -> do
                  r <- getEmptyRegister
                  append $ "ADRP X" ++ show r ++ ", _" ++ name ++ "@GOTPAGE"
                  append $ "LDR X" ++ show r ++ ", [X" ++ show r ++ ", _" ++ name ++ "@GOTPAGEOFF]"
-                 addRegisterCache arg r
+                 addRegisterCache Dummy r
                  return r
       )
       return maybeInRegister
@@ -363,8 +365,8 @@ aSingleOp funName countParam countAutoVars o = case o of
               append $ "B " ++ funName ++ show labelN
           JmpIfZeroLabel labelN arg -> do
               condR <- aArg arg
-              append $ "CMP X" ++ show condR ++ ", #0"
               saveRegisters
+              append $ "CMP X" ++ show condR ++ ", #0"
               append $ "B.EQ " ++ funName ++ show labelN
           Return Nothing -> aFunctionEpilogue countParam countAutoVars
           Return (Just arg) -> do
@@ -373,6 +375,7 @@ aSingleOp funName countParam countAutoVars o = case o of
               aFunctionEpilogue countParam countAutoVars
           UnaryNot dest arg -> do
               r <- aArg arg
+              saveRegisters -- TODO: Discard only the register being used here
               append $ "CMP X" ++ show r ++ ", #0"
               append $ "CSET X" ++ show r ++ ", EQ"
               addRegisterCache (AutoVar dest) r

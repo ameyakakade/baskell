@@ -6,7 +6,7 @@ import BParser
 import Control.Applicative
 import Control.Monad.Fix
 import Data.Char
-import Data.Foldable (traverse_)
+import Data.Foldable       (traverse_)
 import Data.Function
 import Data.List
 import Data.Maybe
@@ -20,6 +20,7 @@ data Arg = AutoVar     Word
          | External    String
          | Literal     Word   -- has to be word
          | DataOffset  Word
+         | Dummy
          deriving (Eq, Show)
 
 data NoOps = UpdateStack Word -- stack size
@@ -145,7 +146,7 @@ updateStack previousStackSize = do
     let op = NoOp (UpdateStack previousStackSize)
     c <- getCompiler
     updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
-    if (not (null (functionBody c))) && (last (functionBody c) == op)
+    if not (null (functionBody c)) && (last (functionBody c) == op)
       then return ()
       else do
         addOp op
@@ -287,6 +288,7 @@ gWhile cond st = do
     exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
     updateStack ss
+
     gStatement st
     addOp (JmpLabel label)
     setLabel exitLabel
@@ -299,6 +301,7 @@ gIfElse cond tst Nothing = do
     exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
     updateStack ss
+
     gStatement tst
     setLabel exitLabel
     updateStack ss
@@ -308,13 +311,15 @@ gIfElse cond tst (Just fst) = do
     condArg <- gRValue cond
     enterElseLabel <- getLabel
     addOp (JmpIfZeroLabel enterElseLabel condArg)
+    updateStack ss
+
     gStatement tst
     updateStack ss
     exitAfterElseLabel <- getLabel
     addOp (JmpLabel exitAfterElseLabel)
     setLabel enterElseLabel
+
     gStatement fst
-    updateStack ss
     setLabel exitAfterElseLabel
     updateStack ss
 
@@ -397,7 +402,7 @@ gConstant :: BConstant -> Compiler Arg
 gConstant constantValue = case constantValue of
                               Digit a -> return $ Literal $ fromIntegral a
                               CharConst a -> return $ Literal $ fromIntegral $ ord a
-                              HexConst a -> return $ Literal $ fromIntegral $ div (stringToHex a) 16
+                              HexConst a -> return $ Literal $ fromIntegral $ stringToHex a
                               Chars a -> do
                                 oldProgram <- program <$> getCompiler
                                 let oldStaticData = staticData oldProgram
@@ -406,9 +411,11 @@ gConstant constantValue = case constantValue of
                                 return (DataOffset dataLength)
 
 stringToHex :: String -> Int
-stringToHex [] = 0
-stringToHex (n:ns) = (r n)*16 + (stringToHex ns)
-  where r c = if c > '9'
+stringToHex [n] = charToHex n
+stringToHex (n:ns) = (charToHex n)*16 + (stringToHex ns)
+
+charToHex :: Char -> Int
+charToHex c = if c > '9'
               then if c > 'F'
                    then ord c - ord 'a' + 10
                    else ord c - ord 'A' + 10
@@ -508,8 +515,8 @@ getAddress lValue = do
     lArg <- gLValue lValue
     case lArg of
       External a -> return (RefExternal a)
-      AutoVar a -> return (Ref a)
-      Deref a -> return (AutoVar a)
+      AutoVar a  -> return (Ref a)
+      Deref a    -> return (AutoVar a)
 
 prettyier :: (Show a) => a -> IO ()
 prettyier s = putStrLn $ snd $

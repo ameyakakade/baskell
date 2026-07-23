@@ -33,8 +33,8 @@ buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do
 asm :: IRProgram -> String
 asm p = aProgramPrologue ++ "\n" ++
         concatMap (aFunction (variadics p)) (functions p) ++ "\n" ++
-        aGlobalVarSection (globalVars p) ++ "\n" ++
         concatMap aNakedFunctionSection (nakedFunctions p) ++ "\n" ++
+        aGlobalVarSection (globalVars p) ++ "\n" ++
         aDataSection (staticData p)
 
 aProgramPrologue :: String
