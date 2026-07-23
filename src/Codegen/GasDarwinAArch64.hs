@@ -2,7 +2,7 @@ module Codegen.GasDarwinAArch64 where
 import Codegen.Common
 
 import BParser        (BBinary (..))
-import Data.Bits
+import Data.Bits((.&.), shiftR)
 import Data.List
 import Data.Maybe
 import Data.Word
@@ -55,7 +55,7 @@ aGlobalVar vName initData = ".data\n" ++
                             ".global _" ++ vName ++ "\n" ++
                             ".p2align 3 // investigate why this is needed\n"++
                             "_" ++ vName ++ ":\n" ++
-                            if null initData then ".quad 0"
+                            if null initData then ".quad 0\n"
                             else concatMap (\a -> ".quad " ++ aGlobalVarArg a ++ "\n") initData
 
 aGlobalVector :: String -> Int -> [Arg] -> String
@@ -208,6 +208,7 @@ aBinary binOp resultLoc lArg rArg = aArg 1 lArg ++
                                       Modulo          -> "SDIV X0, X1, X2\n" ++   -- suppose we are doing a%b. x2 holds a/b quotient
                                                          "MSUB X0, X0, X2, X1\n"  -- which is q then we do (q*b -a) which is mod
                                       Or              -> "ORR X0, X1, X2\n"
+                                      And             -> "AND X0, X1, X2\n"
                                       Divide          -> "SDIV X0, X1, X2\n"
                                     ) ++
                                     storeVarOnStack 0 (fromIntegral resultLoc)

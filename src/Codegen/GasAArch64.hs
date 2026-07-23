@@ -5,7 +5,7 @@ import Generator
 
 import BParser        (BBinary (..))
 import Control.Monad
-import Data.Bits
+import Data.Bits((.&.), shiftR)
 import Data.Foldable
 import Data.List
 import Data.Maybe
@@ -53,7 +53,7 @@ buildRecipe nC outputFileName sourceFiles objectFiles linkerFlags = do
                runIfChanged nC [getFileName ".s" fileName]
                  (getFileName ".o" fileName)
                  (prettyProcess $ readProcessWithExitCode "as"
-                   ["-arch", "arm64", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
+                   ["-arch", "arm64", "-ggdb", "-o", getFileName ".o" fileName, getFileName ".s" fileName] "")
              ) sourceFiles
 
     runIfChanged nC (objectFiles ++ map (getFileName ".o") sourceFiles)
@@ -375,7 +375,6 @@ aSingleOp funName countParam countAutoVars o = case o of
               r <- aArg arg
               append $ "CMP X" ++ show r ++ ", #0"
               append $ "CSET X" ++ show r ++ ", EQ"
-              append $ "CSET X" ++ show r ++ ", EQ"
               addRegisterCache (AutoVar dest) r
           Negate dest arg -> do
               r <- aArg arg
@@ -422,4 +421,5 @@ aBinary binOp loc lArg rArg = do
               Modulo          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR ++ "\n" ++  -- suppose we are doing a%b. x2 holds a/b quotient
                                  "MSUB X" ++ show r ++ ", X" ++ show r ++ ", X" ++ show argR ++ ", X" ++ show argL -- which is q then we do (q*b -a) which is mod
               Or              -> "ORR X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
+              And             -> "AND X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR
               Divide          -> "SDIV X" ++ show r ++ ", X" ++ show argL ++ ", X" ++ show argR

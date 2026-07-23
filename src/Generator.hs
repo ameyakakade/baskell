@@ -144,10 +144,13 @@ updateStack :: Word -> Compiler ()
 updateStack previousStackSize = do
     let op = NoOp (UpdateStack previousStackSize)
     c <- getCompiler
-    if last (functionBody c) /= op
+    updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
+    if cAutoVarCount c < previousStackSize
+      then addOp (NoOp $ (Comment "WARNING: Increasing the stack"))
+      else return ()
+    if (not (null (functionBody c))) && (last (functionBody c) == op)
       then return ()
       else do
-        updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
         addOp op
 
 addOp :: Op -> Compiler ()
@@ -250,24 +253,25 @@ gFunction bname args block = do
     updateCompiler $ \c' -> emptyCompiler { program = newestProgram, errors = errors c', globalNames = globalNames c'}
 
 gStatement :: BStatement -> Compiler ()
-gStatement statement = case statement of
-                         Block   a                -> gBlock a
-                         Extrn   a                -> gExtrn a
-                         Auto    a                -> gAuto (map (\(x,y)->(x,fmap fromIntegral y)) a)
-                         While   cond st          -> gWhile cond st
-                         SRValue a                -> do
-                                        stackSize <- getStackSize
-                                        gRValue a
-                                        updateStack stackSize
-                         IfElse  cond tst fst     -> gIfElse cond tst fst
-                         BReturn (Just a)         -> do
-                                        rArg <- gRValue a
-                                        addOp (Return $ Just rArg)
-                         BReturn Nothing          -> addOp (Return Nothing)
-                         InlineAsm a              -> addOp (Asm a)
-                         Switch expr block        -> gSwitch expr block
-                         Case loc const statement -> gCase loc const statement
-                         Empty                    -> pure ()
+gStatement statement = do
+    case statement of
+      Block   a                -> gBlock a
+      Extrn   a                -> gExtrn a
+      Auto    a                -> gAuto (map (\(x,y)->(x,fmap fromIntegral y)) a)
+      While   cond st          -> gWhile cond st
+      SRValue a                -> do
+                     stackSize <- getStackSize
+                     gRValue a
+                     updateStack stackSize
+      IfElse  cond tst fst     -> gIfElse cond tst fst
+      BReturn (Just a)         -> do
+                     rArg <- gRValue a
+                     addOp (Return $ Just rArg)
+      BReturn Nothing          -> addOp (Return Nothing)
+      InlineAsm a              -> addOp (Asm a)
+      Switch expr block        -> gSwitch expr block
+      Case loc const statement -> gCase loc const statement
+      Empty                    -> pure ()
 
 gBlock :: [BStatement] -> Compiler ()
 gBlock ss = do
@@ -279,6 +283,7 @@ gBlock ss = do
 
 gWhile :: BRValue -> BStatement -> Compiler ()
 gWhile cond st = do
+    ss <- getStackSize
     label <- newLabel
     condArg <- gRValue cond
     exitLabel <- getLabel
@@ -286,16 +291,20 @@ gWhile cond st = do
     gStatement st
     addOp (JmpLabel label)
     setLabel exitLabel
+    updateStack ss
 
 gIfElse :: BRValue -> BStatement -> Maybe BStatement -> Compiler ()
 gIfElse cond tst Nothing = do
+    ss <- getStackSize
     condArg <- gRValue cond
     exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
     gStatement tst
     setLabel exitLabel
+    updateStack ss
 
 gIfElse cond tst (Just fst) = do
+    ss <- getStackSize
     condArg <- gRValue cond
     enterElseLabel <- getLabel
     addOp (JmpIfZeroLabel enterElseLabel condArg)
@@ -305,6 +314,7 @@ gIfElse cond tst (Just fst) = do
     setLabel enterElseLabel
     gStatement fst
     setLabel exitAfterElseLabel
+    updateStack ss
 
 gRValue :: BRValue -> Compiler Arg
 gRValue rvalue = case rvalue of
@@ -323,13 +333,17 @@ gRValue rvalue = case rvalue of
 gFunctionCall :: BRValue -> [BRValue] -> Compiler Arg
 gFunctionCall functionLoc args = do
     autoVarOffset <- allocateAutoVariable 1
+    ss <- getStackSize
     fLoc <- gRValue functionLoc
     fArgs <- traverse gRValue args
     addOp (Funcall autoVarOffset fLoc fArgs)
+    updateStack ss
     return (AutoVar autoVarOffset)
 
 gAssignment :: BLValue -> BAssign -> BRValue -> Compiler Arg
 gAssignment lValue assign rValue = do
+    ss <- getStackSize
+    tempStorage <- allocateAutoVariable 1
     rArg <- gRValue rValue
     lArg <- gLValue lValue
     case assign of
@@ -342,9 +356,9 @@ gAssignment lValue assign rValue = do
                   case lArg of
                     AutoVar a -> addOp (OpBin bop a lArg rArg)
                     External a -> do
-                              tempStorage <- allocateAutoVariable 1
                               addOp (OpBin bop tempStorage lArg rArg)
                               addOp (ExternalAssign a (AutoVar tempStorage))
+    updateStack ss
     return lArg
 
 gLValue :: BLValue -> Compiler Arg
@@ -360,10 +374,12 @@ gLValue l = case l of
                                       StorageAuto i     -> AutoVar i
                            else bogusArg <$ addError (Just n) (\x -> "Could not find variable '" ++ x ++ "'")
               Array ptr offset -> do
+                     arrayPtr <- allocateAutoVariable 1
+                     ss <- getStackSize
                      ptrArg <- gRValue ptr
                      offsetArg <- gRValue offset
-                     arrayPtr <- allocateAutoVariable 1
                      addOp (Index arrayPtr ptrArg offsetArg)
+                     updateStack ss
                      return $ Deref arrayPtr
               Dereference i -> do
                      derefArg <- gRValue i
@@ -379,7 +395,7 @@ gConstant :: BConstant -> Compiler Arg
 gConstant constantValue = case constantValue of
                               Digit a -> return $ Literal $ fromIntegral a
                               CharConst a -> return $ Literal $ fromIntegral $ ord a
-                              HexConst a -> return $ Literal $ fromIntegral $ stringToHex a
+                              HexConst a -> return $ Literal $ fromIntegral $ div (stringToHex a) 16
                               Chars a -> do
                                 oldProgram <- program <$> getCompiler
                                 let oldStaticData = staticData oldProgram
@@ -398,24 +414,29 @@ stringToHex (n:ns) = (r n)*16 + (stringToHex ns)
 
 gBinary :: BRValue -> BBinary -> BRValue -> Compiler Arg
 gBinary l op r = do
+    resultAutoVar <- allocateAutoVariable 1
+    ss <- getStackSize
     lArg <- gRValue l
     rArg <- gRValue r
-    resultAutoVar <- allocateAutoVariable 1
     addOp (OpBin op resultAutoVar lArg rArg)
+    updateStack ss
     return $ AutoVar resultAutoVar
 
 gUnary :: BUnary -> BRValue -> Compiler Arg
 gUnary op r = do
-    rArg <- gRValue r
     resultAutoVar <- allocateAutoVariable 1
+    ss <- getStackSize
+    rArg <- gRValue r
     addOp ((case op of
              Not      -> UnaryNot
              Negative -> Negate) resultAutoVar rArg)
+    updateStack ss
     return $ AutoVar resultAutoVar
 
 gTernary :: BRValue -> BRValue -> BRValue -> Compiler Arg
 gTernary cond t f = do
     resultAutoVar <- allocateAutoVariable 1
+    ss <- getStackSize
     condArg <- gRValue cond
     falseLabel <- getLabel
     addOp (JmpIfZeroLabel falseLabel condArg)
@@ -428,6 +449,7 @@ gTernary cond t f = do
     addOp (AutoAssign resultAutoVar fArg)
     setLabel exitFalseLabel
     cs <- getCompiler
+    updateStack ss
     return (AutoVar resultAutoVar)
 
 gIncDec :: BLValue -> BIncDec -> Bool -> Compiler Arg
