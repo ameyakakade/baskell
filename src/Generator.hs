@@ -145,13 +145,13 @@ updateStack previousStackSize = do
     let op = NoOp (UpdateStack previousStackSize)
     c <- getCompiler
     updateCompiler $ \c -> c { cAutoVarCount = previousStackSize }
-    if cAutoVarCount c < previousStackSize
-      then addOp (NoOp $ (Comment "WARNING: Increasing the stack"))
-      else return ()
-    if (not (null (functionBody c))) && (last (functionBody c) == op)
-      then return ()
-      else do
-        addOp op
+    --if cAutoVarCount c < previousStackSize
+      --then addOp (NoOp $ (Comment "WARNING: Increasing the stack"))
+      --else return ()
+    --if (not (null (functionBody c))) && (last (functionBody c) == op)
+      --then return ()
+      --else do
+        --addOp op
 
 addOp :: Op -> Compiler ()
 addOp o = updateCompiler $ \c -> c { functionBody = functionBody c ++ [o] }
@@ -187,6 +187,7 @@ declareVarAuto :: (BName, Maybe Word) -> Compiler ()
 declareVarAuto (n, size) = do
     autoVarIndex <- allocateAutoVariable (fromMaybe 1 size)
     declareVar n (StorageAuto autoVarIndex)
+    addOp (NoOp $ Comment $ "Added variable " ++ name n ++ " at " ++ show autoVarIndex)
 
 blockBegin :: Compiler ()
 blockBegin = updateCompiler $ \c -> c { vars = []:vars c, functionBlocksCount = 1+functionBlocksCount c }
@@ -288,6 +289,7 @@ gWhile cond st = do
     condArg <- gRValue cond
     exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
+    updateStack ss
     gStatement st
     addOp (JmpLabel label)
     setLabel exitLabel
@@ -299,6 +301,7 @@ gIfElse cond tst Nothing = do
     condArg <- gRValue cond
     exitLabel <- getLabel
     addOp (JmpIfZeroLabel exitLabel condArg)
+    updateStack ss
     gStatement tst
     setLabel exitLabel
     updateStack ss
@@ -309,10 +312,12 @@ gIfElse cond tst (Just fst) = do
     enterElseLabel <- getLabel
     addOp (JmpIfZeroLabel enterElseLabel condArg)
     gStatement tst
+    updateStack ss
     exitAfterElseLabel <- getLabel
     addOp (JmpLabel exitAfterElseLabel)
     setLabel enterElseLabel
     gStatement fst
+    updateStack ss
     setLabel exitAfterElseLabel
     updateStack ss
 
