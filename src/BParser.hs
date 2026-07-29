@@ -326,9 +326,9 @@ bLValue = ( do
           <|> bSingleLValue
 
 bSingleRValue :: Parser BRValue
-bSingleRValue = RUnary <$> bUnary <*> (bRValueFunctionCall <|> bSingleRValue)
-                <|> IncDecPost <$> bLValue <*> bIncDec
+bSingleRValue = IncDecPost <$> bLValue <*> bIncDec
                 <|> IncDecPre <$> bIncDec <*> bLValue
+                <|> RUnary <$> bUnary <*> (bRValueFunctionCall <|> bSingleRValue)
                 <|> GetAddress <$> (charP '&' *> bLValue)
                 <|> bSingleRValueNoUnary
 

@@ -463,15 +463,16 @@ gTernary cond t f = do
 
 gIncDec :: BLValue -> BIncDec -> Bool -> Compiler Arg
 gIncDec l op post = do
-    lArg <- gLValue l
     let o = case op of Increment -> Add
                        Decrement -> Subtract
     if post
-    then do
-      resultAutoVar <- allocateAutoVariable 1
-      addOp (AutoAssign resultAutoVar lArg)
-      gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
-    else gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
+      then do
+        lArg <- gLValue l
+        resultAutoVar <- allocateAutoVariable 1
+        addOp (AutoAssign resultAutoVar lArg)
+        gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
+        return (AutoVar resultAutoVar)
+      else gAssignment l (BinaryAssign o) (RConstant $ Digit 1)
 
 gSwitch :: BRValue -> BStatement -> Compiler ()
 gSwitch expr statement = do
