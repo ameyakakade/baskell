@@ -22,4 +22,3 @@ There is decent error reporting, the compiler can keep on compiling and accumula
 ### Targets
 There are 2 targets for Arm64 MacOS (Older target generates simpler but slower assembly), and Fasm target for x86_64 Linux is
 being developed. Default is Arm64 MacOS. More targets will be added soon :)
-

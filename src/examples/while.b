@@ -1,6 +1,6 @@
 main()
 {
-    extrn write, exit, printword, putchar;
+    extrn exit, printf, putchar;
     auto a;
     a = 10;
     while(a)
@@ -9,8 +9,7 @@ main()
         b=10;
         while(b){
             b=b-1;
-            printword((a+b));
-            write(" ", 1);
+            printf("%d ", a+b);
         }
         a=a-1;
         putchar(10);

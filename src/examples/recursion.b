@@ -2,10 +2,10 @@
    to find out factorial of number */
 main()
 {
-    extrn printword, exit, putchar;
+    extrn printf, exit, putchar;
     auto a;
-    a=factorial(3);
-    printword(a);
+    a=factorial(5);
+    printf("%d", a);
     putchar('*n');
     exit(0);
 }
