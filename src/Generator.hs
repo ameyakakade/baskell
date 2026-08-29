@@ -2,7 +2,7 @@
 
 module Generator where
 
-import BParser
+import Parser
 import Control.Applicative
 import Control.Monad.Fix
 import Data.Char

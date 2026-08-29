@@ -1,7 +1,7 @@
 module Codegen.GasDarwinAArch64 where
 import Codegen.Common
 
-import BParser        (BBinary (..))
+import Parser        (BBinary (..))
 import Data.Bits((.&.), shiftR)
 import Data.List
 import Data.Maybe

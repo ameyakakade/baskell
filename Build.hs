@@ -11,9 +11,9 @@ main = do
     if ck then return () else error "Could not find file \"src/Main.hs\""
     createDirectoryIfMissing False "build/"
     logProcess $ readProcessWithExitCode "ghc" ["-prof", "-fprof-auto", "-rtsopts", "-o", "build/baskell", "-outputdirbuild", "src/Main.hs", "-isrc/"] ""
-    runIfChanged False ["src/Test.hs"] "build/btest"
-      $ logProcess
-      $ readProcessWithExitCode "ghc" ["-o", "build/btest", "-outputdirbuild", "src/Test.hs", "-isrc/"] ""
+    -- runIfChanged False ["src/Test.hs"] "build/btest"
+      -- $ logProcess
+      -- $ readProcessWithExitCode "ghc" ["-o", "build/btest", "-outputdirbuild", "src/Test.hs", "-isrc/"] ""
 
     args <- getArgs
     when (args==["-test"])

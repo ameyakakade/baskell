@@ -8,7 +8,6 @@ import Data.Time.Clock
 import System.Directory
 import System.Exit
 import Parser
-import BParser
 
 data Target = Target {
     targetName          :: String,
@@ -74,9 +73,9 @@ compileFile target dumpInfo fileName = do
     case parsed of
       (Right (r,_)) ->
           do
-            when dumpInfo (do
-                            putStrLn "\nAST:"
-                            prettyier parsed)
+           -- when dumpInfo (do
+           --                 putStrLn "\nAST:"
+           --                 prettyier parsed)
             let irp = gProgram r
             when dumpInfo (do
                             putStrLn "\nIR:"
@@ -102,7 +101,7 @@ compileFile target dumpInfo fileName = do
               putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
               putStrLn ""
               exitWith (ExitFailure 1)
-
+{-
       (Left (Failure errors (loc, s))) -> do
                   putStrLn "Syntax failure"
                   putStr $ fileName ++ ":"
@@ -116,7 +115,7 @@ compileFile target dumpInfo fileName = do
                   putStrLn $ findLoc newLines loc
                   putStr error
                   exitWith (ExitFailure 1)
-
+-}
 findLoc :: [Int] -> Int -> String
 findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
   where n = filter (<loc) ns

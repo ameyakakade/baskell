@@ -1,6 +1,5 @@
 module Main where
 
-import BParser
 import Codegen
 import Generator
 import Parser
