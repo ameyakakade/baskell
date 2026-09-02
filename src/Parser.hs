@@ -65,6 +65,9 @@ instance Eq ParserState where
 -- manage. We will define our custom `state monad`.
 newtype Parser a = Parser { unwrapParser :: ParserState -> (ParserState, Either ParserError a) }
 
+runParser :: Parser a -> String -> (ParserState, Either ParserError a)
+runParser p s = unwrapParser p (ParserState s 0)
+
 instance Functor Parser where
     fmap f (Parser a) = Parser $ \s -> fmap (fmap f) (a s)
     -- fmap over tuple and either
@@ -125,9 +128,6 @@ satisfy f err_msg p = do
     if f a
       then return a
       else raiseError $ Left (FancyError (st_loc s) (E.singleton err_msg))
-
-runParser :: Parser a -> String -> (ParserState, Either ParserError a)
-runParser p s = unwrapParser p (ParserState s 0)
 
 -- raiseError function does not replace errors from the source parser
 -- as it will be inside a do block, the parser monad will propogate
@@ -234,3 +234,21 @@ alternatives = foo <|> bar
 -- always be equal to the previous position, and this is when we will
 -- show the error and not care about other branches. To remedy this we
 -- need `try` which allows us to backtrack a non atomic parser.
+
+many1 :: Parser a -> Parser [a]
+many1 p = do
+    a <- p
+    as <- Parser.many p
+    return (a:as)
+
+many :: Parser a -> Parser [a]
+many p = many1 p <|> return []
+
+sepBy1 :: Parser a -> Parser b -> Parser [a]
+sepBy1 p sep = do
+    a <- p
+    as <- Parser.many $ try $ sep *> p
+    return (a:as)
+
+sepBy :: Parser a -> Parser b -> Parser [a]
+sepBy p sep = sepBy p sep <|> return []
