@@ -3,7 +3,7 @@ module Codegen.GasAArch64 where
 import Codegen.Common
 import Generator
 
-import Parser        (BBinary (..))
+import BParser        (BBinary (..))
 import Control.Monad
 import Data.Bits((.&.), shiftR)
 import Data.Foldable

@@ -2,7 +2,7 @@
 module Codegen.Fasm(fasm) where
 import Codegen.Common
 
-import Parser        (BBinary (..))
+import BParser        (BBinary (..))
 import Data.Bits
 import Data.List
 import Data.Maybe

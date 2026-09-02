@@ -8,6 +8,7 @@ import Data.Time.Clock
 import System.Directory
 import System.Exit
 import Parser
+import BParser
 
 data Target = Target {
     targetName          :: String,
@@ -67,9 +68,11 @@ compileFile :: (IRProgram -> IO String) -> Bool -> String -> IO ()
 compileFile target dumpInfo fileName = do
     a <- readFile fileName
     let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
-    let parsed = startParser bProgram a
-    let (Right (r,_)) = parsed
+    let parsed = runParser bProgram a
+    let (_,r) = parsed
+    pure ()
 
+{-
     case parsed of
       (Right (r,_)) ->
           do
@@ -101,7 +104,7 @@ compileFile target dumpInfo fileName = do
               putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
               putStrLn ""
               exitWith (ExitFailure 1)
-{-
+
       (Left (Failure errors (loc, s))) -> do
                   putStrLn "Syntax failure"
                   putStr $ fileName ++ ":"

@@ -2,7 +2,7 @@
 
 module Generator where
 
-import Parser
+import BParser
 import Control.Applicative
 import Control.Monad.Fix
 import Data.Char
@@ -11,7 +11,6 @@ import Data.Function
 import Data.List
 import Data.Maybe
 import Data.Word
-import Parser
 
 data Arg = AutoVar     Word
          | Deref       Word
