@@ -1,5 +1,15 @@
 module BParser where
 
+import Data.Char
+import Data.List
+import Data.Maybe
+import Data.Set (Set)
+import qualified Data.Set as E
+import Control.Applicative
+import Control.Monad.State.Lazy
+
+import Parser
+
 type BProgram = [BDefinition]
 
 data BDefinition = FDefinition { fName :: BName, fArgs :: [BName], fStatement :: BStatement }
@@ -105,9 +115,34 @@ data BConstant = Digit       Int
 data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
 
-keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__"]
-
-
 bProgram = undefined
 
 startParser = undefined
+
+bName :: Parser BName
+bName = try $ token $ do
+    s  <- get
+    fc <- sat (\x -> x == '_' || isAlpha x) "Expected '_' or an alphabet."
+    rs <- Parser.many (sat isAlphaNum "Expected alphanumberic character.")
+    let name = fc:rs
+    let f = find (== name) keywords
+    if isJust f
+      then raiseError (Left (FancyError (st_loc s) (E.singleton (name ++ " is a reserved keyword."))))
+      else return $ BName name (st_loc s) 
+
+keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__"]
+
+parseKeyword :: String -> Parser String
+parseKeyword = token . try . string
+
+parseInt :: Parser Int
+parseInt = read <$> many1 (sat isNumber "Expected a number.")
+
+bStatement :: Parser BStatement
+bStatement = parse (
+        fmap Extrn (parseKeyword "extrn" *> sepBy1 bName (token $ char ','))
+    <|> fmap Auto  (parseKeyword "auto" *>
+                     sepBy1 ((,) <$> (token bName) <*>
+                              (Just <$> parseInt <|> return Nothing))
+                     (token $ char ','))
+    ) <* char ';'

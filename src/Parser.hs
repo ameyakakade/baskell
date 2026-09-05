@@ -52,7 +52,7 @@ data ParserState = ParserState
 -- We check if the position is equal instead of checking if the
 -- remaining output is same.
 instance Eq ParserState where
-    s1 == s2 = (st_loc s1) == (st_loc s2)
+    s1 == s2 = st_loc s1 == st_loc s2
 
 -- The stateT either returns a tuple with our state and value or
 -- ParserError. This means we don't get a state when we get a error,
@@ -138,7 +138,7 @@ satisfy f err_msg p = do
 -- the do block you also provide the item on which to run the fn
 raiseError :: Either ParserError a -> Parser a
 raiseError err = if isLeft err
-                 then Parser $ \s -> (s, err)
+                 then Parser (, err)
                  else undefined -- Please provide a error.
 
 -- This raises error, i.e uses the previous parsed count. It does not however, restore the previous state.
@@ -157,6 +157,17 @@ try (Parser p) = Parser $ \s -> let (ns, r) = p s
                                    then (ns, r)
                                    else (s, r)
 
+sat :: (Char -> Bool) -> String -> Parser Char
+sat i err = do
+    s <- get
+    c <- item
+    if i c
+      then do
+        return c
+      else do
+        put s
+        raiseError (Left (FancyError (st_loc s) (E.singleton err)))
+
 char :: Char -> Parser Char
 char i = do
     s <- get
@@ -166,7 +177,7 @@ char i = do
         return i
       else do
         put s
-        raiseError (Left (TrivialError (st_loc s) Nothing (E.singleton (Token [i]))))
+        raiseError (Left (TrivialError (st_loc s) (Just (Token [c])) (E.singleton (Token [i]))))
 
 -- define string without using char for better error messages
 -- we cannot use `raiseError` to error out when the char parser errors
@@ -174,7 +185,7 @@ char i = do
 -- replace errors.
 string :: String -> Parser String
 string str = Parser $ \s -> let (s', res) = unwrapParser (traverse char str) s
-                            in if (isRight res)
+                            in if isRight res
                                then (s', res)
                                else (s, Left (TrivialError (st_loc s) Nothing (E.singleton (Token str))) )
                                     -- this doesn't propogate the previous errors forward but replaces them.
@@ -258,3 +269,30 @@ chainr p op v = chainr1 p op <|> return v
 
 chainl :: Parser a -> Parser (a -> a -> a) -> a -> Parser a
 chainl p op v = chainl1 p op <|> return v
+
+spaces :: Parser ()
+spaces = do
+  many1 (sat isSpace "Expected a space.")
+  return ()
+
+comment :: Parser ()
+comment = do
+  string "//"
+  Parser.many (sat (/= '\n') "Expected newline.")
+  return ()
+
+junk :: Parser ()
+junk = do
+  Parser.many (spaces <|> comment)
+  return ()
+
+parse :: Parser a -> Parser a
+parse p = do
+  junk
+  p
+
+token :: Parser a -> Parser a
+token p = do
+  t <- p
+  junk
+  return t
