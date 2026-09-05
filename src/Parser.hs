@@ -142,7 +142,6 @@ raiseError err = if isLeft err
                  else undefined -- Please provide a error.
 
 -- This raises error, i.e uses the previous parsed count. It does not however, restore the previous state.
--- This has to be done by the caller.
 
 -- Make a function to replace a error
 
@@ -167,7 +166,7 @@ char i = do
         return i
       else do
         put s
-        raiseError (Left (FancyError (st_loc s) (E.singleton ("Expected '" ++ [i] ++ "'"))))
+        raiseError (Left (TrivialError (st_loc s) Nothing (E.singleton (Token [i]))))
 
 -- define string without using char for better error messages
 -- we cannot use `raiseError` to error out when the char parser errors
@@ -188,23 +187,6 @@ tls = do
     return [a,b,c]
 
 f = runParser (string "this" <|> string "damn")
-
-  {-
-    s <- get
-    let (r, ns) = case s of
-          [] -> ([], [])
-          (x:xs) -> ([x], xs)
-    put ns
-    case r of
-      [] -> empty
-      [r] -> return r
--}
-
--- The StateM monad combines the functionality of list monad and state
--- monad into one type. The bind operator of this handles the state
--- manually while also using the bind of the inner monad the
--- alternative operator uses the alternative operator of the inner
--- monad.
 
 -- All primitives that consume input are atomic, if they fail, they
 -- backtrack automatically. Example, a string parser will match the
@@ -252,3 +234,27 @@ sepBy1 p sep = do
 
 sepBy :: Parser a -> Parser b -> Parser [a]
 sepBy p sep = sepBy p sep <|> return []
+
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p >>= rest
+  where
+    rest acc = (do
+                     f <- op
+                     x <- p 
+                     rest (f acc x)
+               ) <|> return acc
+
+chainr1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainr1 p op = p >>= rest
+  where
+    rest x = (do
+                   f <- op
+                   xs <- chainr1 p op
+                   return (f x xs)
+             ) <|> return x
+
+chainr :: Parser a -> Parser (a -> a -> a) -> a -> Parser a
+chainr p op v = chainr1 p op <|> return v
+
+chainl :: Parser a -> Parser (a -> a -> a) -> a -> Parser a
+chainl p op v = chainl1 p op <|> return v
