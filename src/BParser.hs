@@ -115,6 +115,37 @@ data BConstant = Digit       Int
 data BName = BName { name :: String, nameLoc :: Int }
            deriving (Eq, Show)
 
+comment :: Parser ()
+comment = do
+  string "//"
+  Parser.many (sat (/= '\n') "Expected newline.")
+  return ()
+
+mlcomment :: Parser ()
+mlcomment = do
+    string "/*"
+    Parser.many (sat (/='*') "Unexpected '*'" <|> (char '*' *> sat (/= '/') "Unexpected '/'"))
+    string "*/"
+    return ()
+
+junk :: Parser ()
+junk = do
+  Parser.many (spaces <|> comment <|> mlcomment)
+  return ()
+
+parse :: Parser a -> Parser a
+parse p = do
+  junk
+  p
+
+token :: Parser a -> Parser a
+token p = do
+  t <- p
+  junk
+  return t
+  
+tChar = token . char
+
 bProgram = undefined
 
 startParser = undefined
@@ -130,7 +161,7 @@ bName = try $ token $ do
       then raiseError (Left (FancyError (st_loc s) (E.singleton (name ++ " is a reserved keyword."))))
       else return $ BName name (st_loc s) 
 
-keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__"]
+keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__", "while"]
 
 parseKeyword :: String -> Parser String
 parseKeyword = token . try . string
@@ -138,11 +169,129 @@ parseKeyword = token . try . string
 parseInt :: Parser Int
 parseInt = read <$> many1 (sat isNumber "Expected a number.")
 
+bIVal :: Parser BIVal
+bIVal = fmap IConstant bConstant
+        <|> fmap IName bName
+
+bAssign :: Parser BAssign
+bAssign = fmap BinaryAssign (tChar '=' *> bBinary)
+          <|> fmap BinaryAssign (bBinary <* tChar '=')
+          <|> fmap (const Assign) (tChar '=')
+
+bIncDec :: Parser BIncDec
+bIncDec = fmap (const Increment) (string "++")
+          <|> fmap (const Decrement) (string "--")
+
+bUnary :: Parser BUnary
+bUnary = fmap (const Negative) (tChar '-')
+          <|> fmap (const Not) (tChar '!')
+
+bBinary :: Parser BBinary
+bBinary = fmap (const Or) (string "|")
+          <|> fmap (const And) (string "&")
+          <|> fmap (const Equal) (string "==")
+          <|> fmap (const NotEqual) (string "!=")
+          <|> fmap (const ShiftLeft) (string "<<")
+          <|> fmap (const ShiftRight) (string ">>")
+          <|> fmap (const LessThanOrEqual) (string "<=")
+          <|> fmap (const LessThan) (string "<")
+          <|> fmap (const MoreThanOrEqual) (string ">=")
+          <|> fmap (const MoreThan) (string ">")
+          <|> fmap (const Add) (string "+")
+          <|> fmap (const Subtract) (string "-")
+          <|> fmap (const Modulo) (string "%")
+          <|> fmap (const Multiply) (string "*")
+          <|> fmap (const Divide) (string "/")
+          <|> fmap (const QuestionMark) (string "?")
+
+bConstant = fmap Digit parseInt
+
+bRValue :: Parser BRValue
+bRValue = RConstant . Digit <$> parseInt 
+
+
+
 bStatement :: Parser BStatement
 bStatement = parse (
-        fmap Extrn (parseKeyword "extrn" *> sepBy1 bName (token $ char ','))
+    ( do
+          tChar '{'
+          sts <- Parser.many1 bStatement
+          tChar '}'
+          return $ Block sts
+    )
+    <|> fmap Extrn (parseKeyword "extrn" *> sepBy1 bName (token $ char ','))
     <|> fmap Auto  (parseKeyword "auto" *>
-                     sepBy1 ((,) <$> (token bName) <*>
-                              (Just <$> parseInt <|> return Nothing))
-                     (token $ char ','))
-    ) <* char ';'
+                     sepBy1 ((,) <$> token bName <*> optional parseInt)
+                     (tChar ',') <* tChar ';')
+    <|> (do
+              parseKeyword "return"
+              rv <- optional bRValue
+              tChar ';'
+              return $ BReturn rv
+        )
+    <|> fmap Goto (parseKeyword "goto" *> token bRValue <* tChar ';')
+    <|> fmap While (parseKeyword "while" *> tChar '(' *> token bRValue <* tChar ')') <*> bStatement
+    <|> (do
+              parseKeyword "if"
+              tChar '('
+              rv <- token bRValue
+              tChar ')'
+              fst <- bStatement
+              snd <- optional (parseKeyword "else" *> bStatement)
+              return $ IfElse rv fst snd
+        )
+    <|> fmap Switch (parseKeyword "switch" *> bRValue) <*> bStatement
+    <|> (do
+              state <- get
+              parseKeyword "case"
+              c <- token bConstant
+              tChar ':'
+              s <- bStatement
+              return $ Case (st_loc state) c s
+        )
+    <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Fix the error
+    <|> return Empty <* tChar ';'
+    )
+
+bDefinition :: Parser BDefinition
+bDefinition = (
+    do
+        name <- try $ token bName
+        tChar '('
+        args <- sepBy (token bName) (tChar ',')
+        tChar ')'
+        s <- bStatement
+        return $ FDefinition name args s 
+    ) <|> (
+    do
+        parseKeyword "__variadic__"
+        tChar '('
+        name <- try $ token bName
+        tChar ','
+        num <- parseInt
+        tChar ')'
+        return $ VariadicFunction name num
+    )
+
+-- TODO: Naked functions and global variables are not parsed
+    
+{-
+bDefinition :: Parser BDefinition
+bDefinition = FDefinition <$> (bName <* bws) <*>
+              finiteSelectBracketed '(' ')'
+               (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> (bNakedStatements <|> bStatement))
+
+               <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
+
+               <|> VariadicFunction <$> (stringP "__variadic__" *> charP '(' *> bws *> bName <* bws) <*>
+               (charP ',' *> bws *> fmap fromJust parseNum <* bws <* charP ')' <* bws <* charP ';')
+
+               <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
+               ((charP '[' *> bws *>
+                 ((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']')
+                 <|> bws $> Nothing)
+               <* bws <*>
+               ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal)
+                <|> return [])
+               <* charP ';'-- parsing ivals
+-}

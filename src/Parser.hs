@@ -31,18 +31,17 @@ data ParserError
 -- When merging two TrivialErrors the exp tokens are merged.
 
 instance Semigroup ParserError where
-    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) = assert pos1 pos2
-      (TrivialError pos1 uxp_tok1 (E.union exp_toks1 exp_toks2))
-    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (FancyError pos2 ferr_msg)             = assert pos1 pos2
+    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) = 
+      (TrivialError (min pos1 pos2) uxp_tok1 (E.union exp_toks1 exp_toks2))
+    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (FancyError pos2 ferr_msg)             = 
       (FancyError pos2 ferr_msg)
-    (<>) (FancyError pos1 ferr_msg)             (TrivialError pos2 uxp_tok2 exp_toks2) = assert pos1 pos2
+    (<>) (FancyError pos1 ferr_msg)             (TrivialError pos2 uxp_tok2 exp_toks2) =
       (FancyError pos1 ferr_msg)
-    (<>) (FancyError pos1 ferr_msg1)            (FancyError pos2 ferr_msg2)            = assert pos1 pos2
+    (<>) (FancyError pos1 ferr_msg1)            (FancyError pos2 ferr_msg2)            =
       (FancyError pos1 (E.union ferr_msg1 ferr_msg2))
 
--- Errors being merged should never have different position.
-assert :: Int -> Int -> ParserError -> ParserError
-assert p1 p2 exp = if p1 == p2 then exp else undefined 
+-- When merging errors, if the positions are equal then union, else pick the error that occured first.
+-- TODO: This is not yet implemented.
 
 data ParserState = ParserState
     { st_str :: String,
@@ -74,9 +73,10 @@ instance Functor Parser where
 
 instance Applicative Parser where
     pure a = Parser $ \s -> (s, pure a)
-    (<*>) f p = Parser $ \s -> (\(ns, atb) -> let (nns, res) = unwrapParser p ns
-                                              in (nns, atb <*> res))
-                               (unwrapParser f s)
+    (<*>) f p = do
+        fn <- f
+        res <- p
+        return $ fn res
 
 instance Monad Parser where
     (>>=) p f = Parser $ \s -> let (ns, res) = unwrapParser p s
@@ -244,7 +244,7 @@ sepBy1 p sep = do
     return (a:as)
 
 sepBy :: Parser a -> Parser b -> Parser [a]
-sepBy p sep = sepBy p sep <|> return []
+sepBy p sep = sepBy1 p sep <|> return []
 
 chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
 chainl1 p op = p >>= rest
@@ -275,24 +275,3 @@ spaces = do
   many1 (sat isSpace "Expected a space.")
   return ()
 
-comment :: Parser ()
-comment = do
-  string "//"
-  Parser.many (sat (/= '\n') "Expected newline.")
-  return ()
-
-junk :: Parser ()
-junk = do
-  Parser.many (spaces <|> comment)
-  return ()
-
-parse :: Parser a -> Parser a
-parse p = do
-  junk
-  p
-
-token :: Parser a -> Parser a
-token p = do
-  t <- p
-  junk
-  return t
