@@ -2,6 +2,7 @@ module Parser where
 import Data.Char
 import Data.Either
 import Data.Tuple
+import Data.Foldable
 import Data.Set (Set)
 import qualified Data.Set as E
 import Data.List.NonEmpty
@@ -184,9 +185,9 @@ char i = do
 -- because that function cannot replace errors. Make a function to
 -- replace errors.
 string :: String -> Parser String
-string str = Parser $ \s -> let (s', res) = unwrapParser (traverse char str) s
+string str = Parser $ \s -> let (s', res) = unwrapParser (traverse_ char str) s
                             in if isRight res
-                               then (s', res)
+                               then (s', fmap (const str) res)
                                else (s, Left (TrivialError (st_loc s) Nothing (E.singleton (Token str))) )
                                     -- this doesn't propogate the previous errors forward but replaces them.
 
@@ -230,9 +231,7 @@ alternatives = foo <|> bar
 
 many1 :: Parser a -> Parser [a]
 many1 p = do
-    a <- p
-    as <- (Parser.many1 p) <|> return []
-    return (a:as)
+    chainr1 (fmap (:[]) p) (return (\a b -> a ++ b))
 
 many :: Parser a -> Parser [a]
 many p = many1 p <|> return []

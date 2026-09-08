@@ -70,20 +70,20 @@ compileFile target dumpInfo fileName = do
     let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
     let parsed = runParser bProgram a
     let (state,r) = parsed
-    print r
+    -- print r
     
     case r of
       (Right r) ->
           do
-           -- when dumpInfo (do
-           --                 putStrLn "\nAST:"
-           --                 prettyier parsed)
+            when dumpInfo (do
+                            putStrLn "\nAST:"
+                            prettyier parsed)
             let irp = gProgram r
             when dumpInfo (do
                             putStrLn "\nIR:"
                             prettyier $ functions $ snd irp
                             -- prettyier $ nakedFunctions $ snd irp
-                            -- prettyier $ globalVars $ snd irp    
+                            -- pret
                             prettyier $ extrns $ snd irp
                             -- prettyier $ variadics $ snd irp
                           )

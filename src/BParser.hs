@@ -219,6 +219,7 @@ parseExpr :: Int -> Parser BRValue
 parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
   where loop lhs = (
             do
+                s <- get
                 op <- token bBinary
                 case op of
                   QuestionMark -> if minBP == 0
@@ -232,7 +233,9 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                   a -> do
                       let (lbp, rbp) = bindingPower op
                       if lbp < minBP
-                        then return lhs
+                        then do
+                          put s
+                          return lhs
                         else do
                           rhs <- parseExpr rbp
                           flhs <- loop (Binary lhs op rhs)
@@ -334,7 +337,7 @@ bStatement = parse (
               return $ Case (st_loc state) c s
         )
     <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Fix the error
-    <|> fmap SRValue bRValue <* tChar ';'
+    <|> fmap SRValue bRValue 
     <|> return Empty <* tChar ';'
     )
 
