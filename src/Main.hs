@@ -29,7 +29,7 @@ main = do
 
     let newC = False
 
-    let nC = isJust $ find (=="-B") args
+    let nC = True
     let targetName = let a = drop 2 <$> find (isPrefixOf "-T") args
                      in fromMaybe "gasAArch64" a
     let (Just target) = find (\(Target s _) -> s == targetName) targets
