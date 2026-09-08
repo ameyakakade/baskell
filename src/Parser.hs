@@ -274,3 +274,4 @@ spaces = do
   many1 (sat isSpace "Expected a space.")
   return ()
 
+-- TODO: Old parser is actually faster. Use profiling to optimize time.
