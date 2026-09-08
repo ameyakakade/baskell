@@ -1,12 +1,12 @@
 module BParser where
 
+import Control.Applicative
+import Control.Monad.State.Lazy
 import Data.Char
 import Data.List
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as E
-import Control.Applicative
-import Control.Monad.State.Lazy
 
 import Parser
 
@@ -143,7 +143,7 @@ token p = do
   t <- p
   junk
   return t
-  
+
 tChar = token . char
 
 bProgram = undefined
@@ -159,7 +159,7 @@ bName = try $ token $ do
     let f = find (== name) keywords
     if isJust f
       then raiseError (Left (FancyError (st_loc s) (E.singleton (name ++ " is a reserved keyword."))))
-      else return $ BName name (st_loc s) 
+      else return $ BName name (st_loc s)
 
 keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "__asm__", "while"]
 
@@ -212,10 +212,6 @@ bConstant = fmap Digit parseInt
 
 -- We should only need `singleLValue` and `singleRValue` parsers.
 
-main = do
-    let w = runParser (parseExpr 0) "1 ? 2 : 4"
-    print w
-
 parseExpr :: Int -> Parser BRValue
 parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
   where loop lhs = (
@@ -233,18 +229,20 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                   a -> do
                       let (lbp, rbp) = bindingPower op
                       if lbp<minBP
-                      then return lhs
-                      else do
-                        rhs <- parseExpr rbp
-                        flhs <- loop (Binary lhs op rhs)
-                        return flhs
+                        then return lhs
+                        else do
+                          rhs <- parseExpr rbp
+                          flhs <- loop (Binary lhs op rhs)
+                          return flhs
             ) <|> (
             do
                 assign <- bAssign
-                undefined
+                case lhs of
+                  RLValue a -> undefined
+                  otherwise -> get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "Need L value to use `=` operator"))
             ) <|> return lhs
 -- TODO: Fix alternative instance because the error at line 230 should
--- be shown. It is shown if we remove the assign do block. 
+-- be shown. It is shown if we remove the assign do block.
 
 bRValue = parseExpr 0
 
@@ -337,7 +335,7 @@ bDefinition = (
         args <- sepBy (token bName) (tChar ',')
         tChar ')'
         s <- bStatement
-        return $ FDefinition name args s 
+        return $ FDefinition name args s
     ) <|> (
     do
         parseKeyword "__variadic__"
@@ -350,7 +348,7 @@ bDefinition = (
     )
 
 -- TODO: Naked functions and global variables are not parsed
-    
+
 {-
 bDefinition :: Parser BDefinition
 bDefinition = FDefinition <$> (bName <* bws) <*>
