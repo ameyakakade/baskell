@@ -231,7 +231,7 @@ alternatives = foo <|> bar
 many1 :: Parser a -> Parser [a]
 many1 p = do
     a <- p
-    as <- Parser.many p
+    as <- (Parser.many1 p) <|> return []
     return (a:as)
 
 many :: Parser a -> Parser [a]

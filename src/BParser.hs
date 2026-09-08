@@ -146,9 +146,12 @@ token p = do
 
 tChar = token . char
 
-bProgram = undefined
+-- TODO: Errors are not properly propogated and instead it just stops
+--       parsing. This is probably because many just ignores the
+--       errors. Maybe there needs to be a variant that propogates
+--       them. 
 
-startParser = undefined
+bProgram = Parser.many1 bDefinition
 
 bName :: Parser BName
 bName = try $ token $ do
@@ -228,7 +231,7 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                                   else return lhs
                   a -> do
                       let (lbp, rbp) = bindingPower op
-                      if lbp<minBP
+                      if lbp < minBP
                         then return lhs
                         else do
                           rhs <- parseExpr rbp
@@ -238,26 +241,33 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
             do
                 assign <- bAssign
                 case lhs of
-                  RLValue a -> undefined
+                  RLValue lv -> do
+                      expr <- parseExpr 0
+                      return $ Assignment lv assign expr
                   otherwise -> get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "Need L value to use `=` operator"))
             ) <|> return lhs
+
 -- TODO: Fix alternative instance because the error at line 230 should
 -- be shown. It is shown if we remove the assign do block.
 
 bRValue = parseExpr 0
+
+-- TODO: Confirm if precedence of unary operators is correct
 
 bSingleRValue :: Parser BRValue
 bSingleRValue = IncDecPost <$> bLValue <*> bIncDec
                 <|> IncDecPre <$> bIncDec <*> bLValue
                 <|> RUnary <$> bUnary <*> bSingleRValue
                 <|> GetAddress <$> (tChar '&' *> bLValue)
-                <|> bRValueOnly >>= (\rv ->
-                                        (do
-                                              tChar '('
-                                              args <- sepBy bRValue (tChar ',')
-                                              tChar ')'
-                                              return $ FunctionCall rv args
+                <|> (bRValueOnly <|> fmap RLValue bLValue >>= (\rv ->
+                                        (
+                                            do
+                                                tChar '('
+                                                args <- sepBy bRValue (tChar ',')
+                                                tChar ')'
+                                                return $ FunctionCall rv args
                                         ) <|> return rv)
+                    )
 
 bLValue = bSingleLValue >>=
           (\lv ->
@@ -324,6 +334,7 @@ bStatement = parse (
               return $ Case (st_loc state) c s
         )
     <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Fix the error
+    <|> fmap SRValue bRValue <* tChar ';'
     <|> return Empty <* tChar ';'
     )
 
@@ -369,3 +380,5 @@ bDefinition = FDefinition <$> (bName <* bws) <*>
                 <|> return [])
                <* charP ';'-- parsing ivals
 -}
+
+ting = runParser bProgram "main() { return 1; } fn() {auto a; a = 1;}"

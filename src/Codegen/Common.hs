@@ -69,12 +69,11 @@ compileFile target dumpInfo fileName = do
     a <- readFile fileName
     let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
     let parsed = runParser bProgram a
-    let (_,r) = parsed
-    pure ()
-
-{-
-    case parsed of
-      (Right (r,_)) ->
+    let (state,r) = parsed
+    print r
+    
+    case r of
+      (Right r) ->
           do
            -- when dumpInfo (do
            --                 putStrLn "\nAST:"
@@ -104,7 +103,7 @@ compileFile target dumpInfo fileName = do
               putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
               putStrLn ""
               exitWith (ExitFailure 1)
-
+{-
       (Left (Failure errors (loc, s))) -> do
                   putStrLn "Syntax failure"
                   putStr $ fileName ++ ":"
@@ -119,6 +118,7 @@ compileFile target dumpInfo fileName = do
                   putStr error
                   exitWith (ExitFailure 1)
 -}
+
 findLoc :: [Int] -> Int -> String
 findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"
   where n = filter (<loc) ns
