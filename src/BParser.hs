@@ -206,10 +206,86 @@ bBinary = fmap (const Or) (string "|")
 
 bConstant = fmap Digit parseInt
 
-bRValue :: Parser BRValue
-bRValue = RConstant . Digit <$> parseInt 
+-- Rewrite the pratt parser to handle all the unary, binary, ternary
+-- operations on lvalue and rvalues. Parse lvalue rvalue in the
+-- pratter itself and decide what to based on that
 
+-- We should only need `singleLValue` and `singleRValue` parsers.
 
+main = do
+    let w = runParser (parseExpr 0) "1 ? 2 : 4"
+    print w
+
+parseExpr :: Int -> Parser BRValue
+parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
+  where loop lhs = (
+            do
+                op <- token bBinary
+                case op of
+                  QuestionMark -> if minBP == 0
+                                  then (do
+                                             t <- parseExpr 0 <* tChar ':'
+                                             f <- parseExpr 0
+                                             return (Ternary lhs t f)
+                                             get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "hi"))
+                                             )
+                                  else return lhs
+                  a -> do
+                      let (lbp, rbp) = bindingPower op
+                      if lbp<minBP
+                      then return lhs
+                      else do
+                        rhs <- parseExpr rbp
+                        flhs <- loop (Binary lhs op rhs)
+                        return flhs
+            ) <|> (
+            do
+                assign <- bAssign
+                undefined
+            ) <|> return lhs
+-- TODO: Fix alternative instance because the error at line 230 should
+-- be shown. It is shown if we remove the assign do block. 
+
+bRValue = parseExpr 0
+
+bSingleRValue :: Parser BRValue
+bSingleRValue = IncDecPost <$> bLValue <*> bIncDec
+                <|> IncDecPre <$> bIncDec <*> bLValue
+                <|> RUnary <$> bUnary <*> bSingleRValue
+                <|> GetAddress <$> (tChar '&' *> bLValue)
+                <|> bRValueOnly >>= (\rv ->
+                                        (do
+                                              tChar '('
+                                              args <- sepBy bRValue (tChar ',')
+                                              tChar ')'
+                                              return $ FunctionCall rv args
+                                        ) <|> return rv)
+
+bLValue = bSingleLValue >>=
+          (\lv ->
+              (do
+                    rvs <- many1 (tChar '[' *> bRValue <* tChar ']')
+                    return $ let (rv:rvs') = rvs
+                             in foldl' (\(Array ptr offset) newOffset ->
+                                           Array (RLValue $ Array ptr offset) newOffset) (Array (RLValue lv) rv) rvs'
+              ) <|> return lv)
+
+-- TODO: Verify if fn()[] is valid B. Because array works only on (rvs) and constants.
+--       Improve how arrays are parsed and not rely on fold. Maybe make a special fold-like fn
+
+bSingleLValue :: Parser BLValue
+bSingleLValue = fmap Dereference (tChar '*' *> bSingleRValue)
+                <|> fmap LName bName
+
+bRValueOnly :: Parser BRValue
+bRValueOnly = fmap RConstant bConstant
+              <|> (do
+        junk
+        tChar '('
+        rv <- bRValue
+        tChar ')'
+        return $ BracketRValue rv
+    )
 
 bStatement :: Parser BStatement
 bStatement = parse (
