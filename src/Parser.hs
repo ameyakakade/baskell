@@ -236,6 +236,20 @@ many1 p = do
 many :: Parser a -> Parser [a]
 many p = many1 p <|> return []
 
+manyTillEnd :: Parser a -> Parser [a]
+manyTillEnd parser = do
+    p <- parser
+    s <- get
+    let (ns, res) = unwrapParser (manyTillEnd parser) s
+    put ns
+    case res of
+      Left a -> case a of
+                  TrivialError _ _ e -> if E.member EndOfInput e
+                                        then return [p]
+                                        else raiseError (Left a)
+                  otherwise -> raiseError (Left a)
+      Right a -> return (p:a)
+
 sepBy1 :: Parser a -> Parser b -> Parser [a]
 sepBy1 p sep = do
     a <- p

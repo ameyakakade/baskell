@@ -103,21 +103,23 @@ compileFile target dumpInfo fileName = do
               putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
               putStrLn ""
               exitWith (ExitFailure 1)
-{-
-      (Left (Failure errors (loc, s))) -> do
+
+      (Left (TrivialError loc maybeExp exp)) -> do
                   putStrLn "Syntax failure"
                   putStr $ fileName ++ ":"
                   putStrLn $ findLoc newLines loc
-                  putStr $ unlines errors
+                  putStr $ "Got "
+                  print exp 
+                  putStr $ ", expected"
+                  print maybeExp
                   exitWith (ExitFailure 1)
 
-      (Left (Error error (loc, s))) -> do
+      (Left (FancyError loc errors)) -> do
                   putStrLn "Syntax error"
                   putStr $ fileName ++ ":"
                   putStrLn $ findLoc newLines loc
-                  putStr error
+                  print errors
                   exitWith (ExitFailure 1)
--}
 
 findLoc :: [Int] -> Int -> String
 findLoc ns loc' = show (length n + 1) ++ ":" ++ show (loc-last (0:n)) ++ ":"

@@ -151,12 +151,12 @@ tChar = token . char
 --       errors. Maybe there needs to be a variant that propogates
 --       them. 
 
-bProgram = Parser.many1 bDefinition
+bProgram = manyTillEnd bDefinition
 
 bName :: Parser BName
 bName = try $ token $ do
     s  <- get
-    fc <- sat (\x -> x == '_' || isAlpha x) "Expected '_' or an alphabet."
+    fc <- sat (\x -> x == '_' || isAlpha x) "Invalid identifier. Expected '_' or an alphabet."
     rs <- Parser.many (sat isAlphaNum "Expected alphanumberic character.")
     let name = fc:rs
     let f = find (== name) keywords
@@ -306,10 +306,10 @@ bStatement = parse (
           tChar '}'
           return $ Block sts
     )
-    <|> fmap Extrn (parseKeyword "extrn" *> sepBy1 bName (token $ char ','))
-    <|> fmap Auto  (parseKeyword "auto" *>
+    <|> fmap Extrn ((parseKeyword "extrn" *> sepBy1 bName (token $ char ',')) <* tChar ';')
+    <|> fmap Auto  ((parseKeyword "auto" *>
                      sepBy1 ((,) <$> token bName <*> optional parseInt)
-                     (tChar ',') <* tChar ';')
+                     (tChar ',')) <* tChar ';')
     <|> (do
               parseKeyword "return"
               rv <- optional bRValue
@@ -337,8 +337,8 @@ bStatement = parse (
               return $ Case (st_loc state) c s
         )
     <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Fix the error
-    <|> fmap SRValue bRValue 
-    <|> return Empty <* tChar ';'
+    <|> try (fmap SRValue bRValue <* tChar ';')
+    -- <|> return Empty <* tChar ';'
     )
 
 bDefinition :: Parser BDefinition
@@ -363,25 +363,6 @@ bDefinition = (
 
 -- TODO: Naked functions and global variables are not parsed
 
-{-
-bDefinition :: Parser BDefinition
-bDefinition = FDefinition <$> (bName <* bws) <*>
-              finiteSelectBracketed '(' ')'
-               (bws *> repeatedParser (spanP (==',') *> bws *> bName <* bws) <* bws) <*> (bwsnn *> (bNakedStatements <|> bStatement))
+ting = runParser bProgram "main() { extrn wow; return 1; } fn() {auto a; a = 1;}"
 
-               <|> NakedFunction <$> (bName <* bws) <*> parseInlineAsm
-
-               <|> VariadicFunction <$> (stringP "__variadic__" *> charP '(' *> bws *> bName <* bws) <*>
-               (charP ',' *> bws *> fmap fromJust parseNum <* bws <* charP ')' <* bws <* charP ';')
-
-               <|> fmap GlobalVar (bws *> bName <* bws) <*>                                                                    -- parsing the name
-               ((charP '[' *> bws *>
-                 ((\x -> if isNothing x then Just 0 else x) <$> parseNum) <* bws <* charP ']')
-                 <|> bws $> Nothing)
-               <* bws <*>
-               ((:) <$> bIVal <* bws <*> tryingRepeatedParser (charP ',' *> bws *> bIVal)
-                <|> return [])
-               <* charP ';'-- parsing ivals
--}
-
-ting = runParser bProgram "main() { return 1; } fn() {auto a; a = 1;}"
+wow = "{\n extrn printf; return +;}"
