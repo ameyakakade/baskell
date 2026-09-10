@@ -306,3 +306,11 @@ spaces = do
   return ()
 
 -- TODO: Old parser is actually faster. Use profiling to optimize time.
+
+ignoreErr :: Parser a -> Parser a
+ignoreErr p = Parser $ \s -> let (ns, res) = unwrapParser p s
+                             in case res of
+                                  Right _ -> (ns, res)
+                                  Left a -> case a of
+                                    TrivialError loc u e -> (ns, Left $ TrivialError (-1) u e)
+                                    otherwise -> (ns, res)
