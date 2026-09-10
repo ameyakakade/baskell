@@ -33,13 +33,13 @@ data ParserError
 
 instance Semigroup ParserError where
     (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) = 
-      (TrivialError (min pos1 pos2) uxp_tok1 (E.union exp_toks1 exp_toks2))
-    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (FancyError pos2 ferr_msg)             = 
-      (FancyError pos2 ferr_msg)
+      (TrivialError (max pos1 pos2) uxp_tok1 (E.union exp_toks1 exp_toks2))
     (<>) (FancyError pos1 ferr_msg)             (TrivialError pos2 uxp_tok2 exp_toks2) =
       (FancyError pos1 ferr_msg)
     (<>) (FancyError pos1 ferr_msg1)            (FancyError pos2 ferr_msg2)            =
       (FancyError pos1 (E.union ferr_msg1 ferr_msg2))
+    (<>) err1 (FancyError pos2 ferr_msg)             =  -- TODO: Having fancy errors always take priority causes bad error messages. Find out a way to merge these errors
+      err1
 
 -- When merging errors, if the positions are equal then union, else pick the error that occured first.
 -- TODO: This is not yet implemented.
@@ -237,6 +237,20 @@ many1 parser = do
 
 many :: Parser a -> Parser [a]
 many p = many1 p <|> return []
+
+manyTillEnd :: Parser a -> Parser [a]
+manyTillEnd parser = do
+    p <- parser
+    s <- get
+    let (ns, res) = unwrapParser (manyTillEnd parser) s
+    put ns
+    case res of
+      Left a -> case a of
+                  TrivialError _ _ e -> if E.member EndOfInput e
+                                        then return [p]
+                                        else raiseError (Left a)
+                  otherwise -> raiseError (Left a)
+      Right a -> return (p:a)
 
 sepBy1 :: Parser a -> Parser b -> Parser [a]
 sepBy1 p sep = do
