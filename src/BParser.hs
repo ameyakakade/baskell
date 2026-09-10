@@ -146,11 +146,6 @@ token p = do
 
 tChar = token . char
 
--- TODO: Errors are not properly propogated and instead it just stops
---       parsing. This is probably because many just ignores the
---       errors. Maybe there needs to be a variant that propogates
---       them. 
-
 bProgram = manyTillEnd bDefinition
 
 bName :: Parser BName
@@ -227,7 +222,7 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                                              t <- parseExpr 0 <* tChar ':'
                                              f <- parseExpr 0
                                              return (Ternary lhs t f)
-                                             get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "hi"))
+                                             get >>= \s -> raiseError $ Left (TrivialError (st_loc s) Nothing (E.singleton $ Token "HAHA GOTYA!"))
                                              )
                                   else return lhs
                   a -> do
@@ -248,7 +243,16 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                       expr <- parseExpr 0
                       return $ Assignment lv assign expr
                   otherwise -> get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "Need L value to use `=` operator"))
-            ) <|> return lhs
+            ) <|> (
+            do
+                s <- get
+                c <- item
+                put s
+                -- Allow failure ONLY if next token is one of these.
+                if any (c ==) [';', ')', '(', ':', ',']
+                  then return lhs
+                  else empty
+                )
 
 -- TODO: Fix alternative instance because the error at line 230 should
 -- be shown. It is shown if we remove the assign do block.
@@ -337,9 +341,19 @@ bStatement = parse (
               return $ Case (st_loc state) c s
         )
     <|> ignoreErr (try (BLabel <$> bName <* tChar ':' <*> bStatement))
-    <|> try (fmap SRValue bRValue <* (ignoreErr $ tChar ';')) -- TODO: ignore err only on certain conditions
+    <|> try (do
+              rv <- bRValue
+              case rv of
+                RLValue (LName n) -> do
+                    ignoreErr $ tChar ';'
+                    return $ SRValue rv
+                otherwise -> do
+                    tChar ';'
+                    return $ SRValue rv
+        )
     <|> return Empty <* tChar ';'
     )
+
 
 bDefinition :: Parser BDefinition
 bDefinition = (
@@ -363,6 +377,6 @@ bDefinition = (
 
 -- TODO: Naked functions and global variables are not parsed
 
-ting = runParser bProgram "main() { extrn wow; retur n 1; } fn() {auto 3; a = 1;}"
+ting = runParser bProgram "main() { extrn wow; return (1 + 1); } fn() {auto 3; a = 1;}"
 
 wow = "{\n extrn printf; return +;}"

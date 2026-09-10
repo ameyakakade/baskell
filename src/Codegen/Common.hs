@@ -28,7 +28,7 @@ instance Monad (StateM a) where
     x >>= y = StateM $ \c -> let (cs, input) = runStateM x c
                               in runStateM (y input) cs
 
-bd = ".baskellbuild/"
+bd = ".build/"
 
 getFileName :: String -> FilePath -> FilePath
 getFileName ext fp = bd ++ takeWhile (/='.') fp ++ ext
@@ -48,14 +48,15 @@ runIfChanged force fp out ting = do
 
 checkChange :: FilePath -> FilePath -> IO Bool
 checkChange out fp = do
-    inT <- getModificationTime fp
-    fileExists <- doesFileExist out
-    if fileExists
-    then do
-      outT <- getModificationTime out
-      let d = diffUTCTime inT outT
-      return $ d > 0
-    else return True
+    return True
+    --inT <- getModificationTime fp
+    --fileExists <- doesFileExist out
+    --if fileExists
+    --then do
+      --outT <- getModificationTime out
+      --let d = diffUTCTime inT outT
+      --return $ d > 0
+    --else return True
 
 prettyProcess :: Show a => IO (a, String, String) -> IO ()
 prettyProcess p = do

@@ -43,6 +43,7 @@ instance Semigroup ParserError where
       (FancyError pos1 (E.union ferr_msg1 ferr_msg2))
     (<>) err1 (FancyError pos2 ferr_msg)             =  -- TODO: Having fancy errors always take priority causes bad error messages. Find out a way to merge these errors
       err1
+      --(FancyError pos2 ferr_msg)
 
 -- When merging errors, if the positions are equal then union, else pick the error that occured first.
 -- TODO: This is not yet implemented.
