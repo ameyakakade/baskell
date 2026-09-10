@@ -33,7 +33,10 @@ data ParserError
 
 instance Semigroup ParserError where
     (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) =
-         (TrivialError pos1 uxp_tok1 (E.union exp_toks1 exp_toks2))
+        if pos1 == pos2 then (TrivialError pos1 uxp_tok1 (E.union exp_toks1 exp_toks2))
+        else if pos1 > pos2
+             then (TrivialError pos1 uxp_tok1 exp_toks1)
+             else (TrivialError pos2 uxp_tok2 exp_toks2)
     (<>) (FancyError pos1 ferr_msg)             (TrivialError pos2 uxp_tok2 exp_toks2) =
       (TrivialError pos2 uxp_tok2 exp_toks2)
     (<>) (FancyError pos1 ferr_msg1)            (FancyError pos2 ferr_msg2)            =

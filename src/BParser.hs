@@ -336,6 +336,7 @@ bStatement = parse (
               s <- bStatement
               return $ Case (st_loc state) c s
         )
+    <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Somehow ignore the errors of these 2, they almost always succeed
     <|> try (fmap SRValue bRValue <* tChar ';')
     <|> return Empty <* tChar ';'
     )
