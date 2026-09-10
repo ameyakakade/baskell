@@ -300,13 +300,12 @@ bRValueOnly = fmap RConstant bConstant
 
 bStatement :: Parser BStatement
 bStatement = parse (
-    ( do -- TODO: Investigate why placing block parser at the end fixes error messages
+    ( do
           tChar '{'
-          sts <- Parser.many1 bStatement
+          sts <- manyWhile (/='}') bStatement
           tChar '}'
           return $ Block sts
     )
-    <|> empty
     <|> fmap Auto  ((parseKeyword "auto" *>
                      sepBy1 ((,) <$> token bName <*> optional parseInt)
                      (tChar ',')) <* tChar ';')
@@ -337,7 +336,6 @@ bStatement = parse (
               s <- bStatement
               return $ Case (st_loc state) c s
         )
-    <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Fix the error
     <|> try (fmap SRValue bRValue <* tChar ';')
     <|> return Empty <* tChar ';'
     )

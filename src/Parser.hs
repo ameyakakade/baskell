@@ -32,10 +32,10 @@ data ParserError
 -- When merging two TrivialErrors the exp tokens are merged.
 
 instance Semigroup ParserError where
-    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) = 
-      (TrivialError (max pos1 pos2) uxp_tok1 (E.union exp_toks1 exp_toks2))
+    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) =
+         (TrivialError pos1 uxp_tok1 (E.union exp_toks1 exp_toks2))
     (<>) (FancyError pos1 ferr_msg)             (TrivialError pos2 uxp_tok2 exp_toks2) =
-      (FancyError pos1 ferr_msg)
+      (TrivialError pos2 uxp_tok2 exp_toks2)
     (<>) (FancyError pos1 ferr_msg1)            (FancyError pos2 ferr_msg2)            =
       (FancyError pos1 (E.union ferr_msg1 ferr_msg2))
     (<>) err1 (FancyError pos2 ferr_msg)             =  -- TODO: Having fancy errors always take priority causes bad error messages. Find out a way to merge these errors
@@ -232,7 +232,7 @@ alternatives = foo <|> bar
 many1 :: Parser a -> Parser [a]
 many1 parser = do
     p <- parser
-    ps <- Parser.many parser
+    ps <- (Parser.many1 parser <|> return [])
     return $ p:ps
 
 many :: Parser a -> Parser [a]
@@ -251,6 +251,18 @@ manyTillEnd parser = do
                                         else raiseError (Left a)
                   otherwise -> raiseError (Left a)
       Right a -> return (p:a)
+
+manyWhile :: (Char -> Bool) -> Parser b -> Parser [b]
+manyWhile pred parser = do
+    s <- get
+    c <- item
+    put s
+    if pred c
+      then do
+        p <- parser
+        ps <- manyWhile pred parser
+        return $ p:ps
+      else return []
 
 sepBy1 :: Parser a -> Parser b -> Parser [a]
 sepBy1 p sep = do
