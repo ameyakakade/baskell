@@ -103,6 +103,9 @@ compileFile target dumpInfo fileName = do
               putStrLn $ "Could not compile due to " ++ show (length $ fst irp) ++ " errors."
               putStrLn ""
               exitWith (ExitFailure 1)
+      a -> do
+              print a
+              exitWith (ExitFailure 1)
 {-
       (Left (Failure errors (loc, s))) -> do
                   putStrLn "Syntax failure"

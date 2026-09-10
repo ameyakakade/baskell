@@ -230,8 +230,10 @@ alternatives = foo <|> bar
 -- need `try` which allows us to backtrack a non atomic parser.
 
 many1 :: Parser a -> Parser [a]
-many1 p = do
-    chainr1 (fmap (:[]) p) (return (\a b -> a ++ b))
+many1 parser = do
+    p <- parser
+    ps <- Parser.many parser
+    return $ p:ps
 
 many :: Parser a -> Parser [a]
 many p = many1 p <|> return []

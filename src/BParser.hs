@@ -300,13 +300,7 @@ bRValueOnly = fmap RConstant bConstant
 
 bStatement :: Parser BStatement
 bStatement = parse (
-    ( do
-          tChar '{'
-          sts <- Parser.many1 bStatement
-          tChar '}'
-          return $ Block sts
-    )
-    <|> fmap Extrn (parseKeyword "extrn" *> sepBy1 bName (token $ char ','))
+    fmap Extrn (parseKeyword "extrn" *> sepBy1 bName (token $ char ','))
     <|> fmap Auto  (parseKeyword "auto" *>
                      sepBy1 ((,) <$> token bName <*> optional parseInt)
                      (tChar ',') <* tChar ';')
@@ -336,20 +330,24 @@ bStatement = parse (
               s <- bStatement
               return $ Case (st_loc state) c s
         )
-    <|> try (BLabel <$> bName <* tChar ':' <*> bStatement) -- TODO: Fix the error
-    <|> fmap SRValue bRValue 
+    <|> fmap SRValue bRValue <* tChar ';'
     <|> return Empty <* tChar ';'
+    <|> ( do
+          tChar '{'
+          sts <- Parser.many1 bStatement
+          tChar '}'
+          return $ Block sts
+        )
     )
 
 bDefinition :: Parser BDefinition
 bDefinition = (
     do
-        name <- try $ token bName
+        name <- token bName
         tChar '('
-        args <- sepBy (token bName) (tChar ',')
         tChar ')'
         s <- bStatement
-        return $ FDefinition name args s
+        return $ FDefinition name [] s
     ) <|> (
     do
         parseKeyword "__variadic__"
@@ -384,4 +382,4 @@ bDefinition = FDefinition <$> (bName <* bws) <*>
                <* charP ';'-- parsing ivals
 -}
 
-ting = runParser bProgram "main() { return 1; } fn() {auto a; a = 1;}"
+ting = runParser bProgram "main() { return 1; } fn() {auto 3; a = 1;}"
