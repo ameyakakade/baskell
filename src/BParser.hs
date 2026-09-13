@@ -204,15 +204,19 @@ bBinary = fmap (const Or) (string "|")
 
 bConstant = fmap Digit parseInt <|> fmap Chars parseString <|> fmap CharConst parseChar
 
+escapeChar :: Char -> Char
+escapeChar x = case x of
+                 'n' -> '\n'
+                 't' -> '\t'
+                 '0' -> '\0'
+                 a -> a
+
+
 parseString :: Parser String
 parseString = do
     tChar '"'
     c <- Parser.many (sat (\x -> x/='"' && x/='*') "Unexpected '\"'" <|>
-                       (char '*' *> fmap (\x -> case x of
-                                             'n' -> '\n'
-                                             't' -> '\t'
-                                             a -> a
-                                         )
+                       (char '*' *> fmap escapeChar
                         (sat (const True) "Escaped char because saw '*'.")))
     tChar '"'
     return c
@@ -221,11 +225,7 @@ parseChar :: Parser Char
 parseChar = do
     tChar '\''
     c <- (sat (\x -> x/='"' && x/='*') "Unexpected '\"'" <|>
-           (char '*' *> fmap (\x -> case x of
-                                      'n' -> '\n'
-                                      't' -> '\t'
-                                      a -> a
-                             )
+           (char '*' *> fmap escapeChar
              (sat (const True) "Escaped char because saw '*'.")))
     tChar '\''
     return c
