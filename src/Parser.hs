@@ -14,8 +14,6 @@ import Control.Monad.State.Lazy
 data ErrorItem
   = -- Non-empty stream of tokens
     Token String
-  | -- Label (cannot be empty)
-    Label (NonEmpty Char)
   | -- End of input
     EndOfInput
     deriving (Show, Eq, Ord)

@@ -146,13 +146,13 @@ token p = do
 
 tChar = token . char
 
-bProgram = manyTillEnd bDefinition
+bProgram = manyTillEnd (parse bDefinition)
 
 bName :: Parser BName
 bName = try $ token $ do
     s  <- get
     fc <- sat (\x -> x == '_' || isAlpha x) "Invalid identifier. Expected '_' or an alphabet."
-    rs <- Parser.many (sat isAlphaNum "Expected alphanumberic character.")
+    rs <- Parser.many (sat (\x -> x == '_' || isAlphaNum x) "Expected alphanumberic character.")
     let name = fc:rs
     let f = find (== name) keywords
     if isJust f
@@ -202,7 +202,33 @@ bBinary = fmap (const Or) (string "|")
           <|> fmap (const Divide) (string "/")
           <|> fmap (const QuestionMark) (string "?")
 
-bConstant = fmap Digit parseInt
+bConstant = fmap Digit parseInt <|> fmap Chars parseString <|> fmap CharConst parseChar
+
+parseString :: Parser String
+parseString = do
+    tChar '"'
+    c <- Parser.many (sat (\x -> x/='"' && x/='*') "Unexpected '\"'" <|>
+                       (char '*' *> fmap (\x -> case x of
+                                             'n' -> '\n'
+                                             't' -> '\t'
+                                             a -> a
+                                         )
+                        (sat (const True) "Escaped char because saw '*'.")))
+    tChar '"'
+    return c
+
+parseChar :: Parser Char
+parseChar = do
+    tChar '\''
+    c <- (sat (\x -> x/='"' && x/='*') "Unexpected '\"'" <|>
+           (char '*' *> fmap (\x -> case x of
+                                      'n' -> '\n'
+                                      't' -> '\t'
+                                      a -> a
+                             )
+             (sat (const True) "Escaped char because saw '*'.")))
+    tChar '\''
+    return c
 
 -- Rewrite the pratt parser to handle all the unary, binary, ternary
 -- operations on lvalue and rvalues. Parse lvalue rvalue in the
@@ -210,8 +236,11 @@ bConstant = fmap Digit parseInt
 
 -- We should only need `singleLValue` and `singleRValue` parsers.
 
-parseExpr :: Int -> Parser BRValue
-parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
+-- TODO: Make it so that errors inside arguments of function calls are
+-- properly reported.
+
+parseExpr :: Bool -> Int -> Parser BRValue
+parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
   where loop lhs = (
             do
                 s <- get
@@ -219,8 +248,8 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                 case op of
                   QuestionMark -> if minBP == 0
                                   then (do
-                                             t <- parseExpr 0 <* tChar ':'
-                                             f <- parseExpr 0
+                                             t <- parseExpr fail 0 <* tChar ':'
+                                             f <- parseExpr fail 0
                                              return (Ternary lhs t f)
                                              get >>= \s -> raiseError $ Left (TrivialError (st_loc s) Nothing (E.singleton $ Token "HAHA GOTYA!"))
                                              )
@@ -232,7 +261,7 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                           put s
                           return lhs
                         else do
-                          rhs <- parseExpr rbp
+                          rhs <- parseExpr fail rbp
                           flhs <- loop (Binary lhs op rhs)
                           return flhs
             ) <|> (
@@ -240,7 +269,7 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                 assign <- bAssign
                 case lhs of
                   RLValue lv -> do
-                      expr <- parseExpr 0
+                      expr <- parseExpr fail 0
                       return $ Assignment lv assign expr
                   otherwise -> get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "Need L value to use `=` operator"))
             ) <|> (
@@ -248,16 +277,17 @@ parseExpr minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= loop
                 s <- get
                 c <- item
                 put s
-                -- Allow failure ONLY if next token is one of these.
-                if any (c ==) [';', ')', '(', ':', ',']
+                -- Allow failure ONLY if next token is one of these or
+                -- if explicitly allowed
+                if any (c ==) [';', ')', '(', ':', ','] || fail
                   then return lhs
                   else empty
                 )
 
--- TODO: Fix alternative instance because the error at line 230 should
--- be shown. It is shown if we remove the assign do block.
+-- Do not explicitly allow failure
+bRValue = parseExpr False 0
 
-bRValue = parseExpr 0
+bRValueStrict = parseExpr True 0
 
 -- TODO: Confirm if precedence of unary operators is correct
 
@@ -331,7 +361,7 @@ bStatement = parse (
               snd <- optional (parseKeyword "else" *> bStatement)
               return $ IfElse rv fst snd
         )
-    <|> fmap Switch (parseKeyword "switch" *> bRValue) <*> bStatement
+    <|> fmap Switch (parseKeyword "switch" *> bRValueStrict) <*> bStatement
     <|> (do
               state <- get
               parseKeyword "case"
@@ -340,6 +370,7 @@ bStatement = parse (
               s <- bStatement
               return $ Case (st_loc state) c s
         )
+    <|> parseInlineAsm 
     <|> ignoreErr (try (BLabel <$> bName <* tChar ':' <*> bStatement))
     <|> try (do
               rv <- bRValue
@@ -354,16 +385,34 @@ bStatement = parse (
     <|> return Empty <* tChar ';'
     )
 
+parseInlineAsm = do
+    string "__asm__"
+    tChar '('
+    strings <- sepBy (token parseString) (tChar ',')
+    tChar ')'
+    tChar ';'
+    return $ InlineAsm strings
 
 bDefinition :: Parser BDefinition
 bDefinition = (
     do
         name <- token bName
-        tChar '('
-        args <- sepBy (token bName) (tChar ',')
-        tChar ')'
-        s <- bStatement
-        return $ FDefinition name args s
+        (
+            do
+                tChar '('
+                args <- sepBy (token bName) (tChar ',')
+                tChar ')'
+                s <- bStatement
+                return $ FDefinition name args s
+            ) <|> (
+            do
+                ss <- parseInlineAsm
+                case ss of
+                  InlineAsm a -> return $ NakedFunction name a
+            ) <|> (
+            do
+                empty -- parse global variables
+            )
     ) <|> (
     do
         parseKeyword "__variadic__"
@@ -377,6 +426,6 @@ bDefinition = (
 
 -- TODO: Naked functions and global variables are not parsed
 
-ting = runParser bProgram "main() { extrn wow; return (1 + 1); } fn() {auto 3; a = 1;}"
+ting = runParser bProgram "main() { extrn wow; { printf(); }}"
 
 wow = "{\n extrn printf; return +;}"
