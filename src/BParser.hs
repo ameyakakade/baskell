@@ -164,13 +164,13 @@ keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "
 parseKeyword :: String -> Parser String
 parseKeyword = token . try . string
 
+-- TODO: Do we allow negative constants?
 bIVal :: Parser BIVal
 bIVal = fmap IConstant bConstant
         <|> fmap IName bName
 
 bAssign :: Parser BAssign
-bAssign = fmap BinaryAssign (tChar '=' *> bBinary)
-          <|> fmap BinaryAssign (bBinary <* tChar '=')
+bAssign = fmap BinaryAssign (try (char '=' *> bBinary))
           <|> fmap (const Assign) (tChar '=')
 
 bIncDec :: Parser BIncDec
@@ -252,9 +252,11 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                 case op of
                   QuestionMark -> if minBP == 0
                                   then (do
-                                             t <- parseExpr False 0 <* tChar ':'
+                                             t <- parseExpr fail 0 <* tChar ':'
                                              f <- parseExpr fail  0
                                              return (Ternary lhs t f)
+                                             -- TODO: Fix nested
+                                             -- ternary expressions.
                                              )
                                   else return lhs
                   a -> do
@@ -269,7 +271,7 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                           return flhs
             ) <|> (
             do
-                assign <- bAssign
+                assign <- try $ token bAssign
                 case lhs of
                   RLValue lv -> do
                       expr <- parseExpr fail 0
@@ -282,7 +284,7 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                 put s
                 -- Allow failure ONLY if next token is one of these or
                 -- if explicitly allowed
-                if any (c ==) [';', ')', '(', ':', ','] || fail
+                if any (c ==) [';', ')', '(', ':', ',', ']'] || fail
                   then return lhs
                   else empty
                 )
@@ -295,11 +297,11 @@ bRValueStrict = parseExpr True 0
 -- TODO: Confirm if precedence of unary operators is correct
 
 bSingleRValue :: Parser BRValue
-bSingleRValue = IncDecPost <$> bLValue <*> bIncDec
-                <|> IncDecPre <$> bIncDec <*> bLValue
+bSingleRValue = IncDecPre <$> bIncDec <*> bLValue
+                <|> IncDecPost <$> bLValue <*> bIncDec
                 <|> RUnary <$> bUnary <*> bSingleRValue
                 <|> GetAddress <$> (tChar '&' *> bLValue)
-                <|> (bRValueOnly <|> fmap RLValue bLValue >>= (\rv ->
+                <|> (fmap RLValue bLValue <|> bRValueOnly >>= (\rv ->
                                         (
                                             do
                                                 tChar '('
@@ -309,14 +311,24 @@ bSingleRValue = IncDecPost <$> bLValue <*> bIncDec
                                         ) <|> return rv)
                     )
 
-bLValue = bSingleLValue >>=
-          (\lv ->
-              (do
-                    rvs <- many1 (tChar '[' *> bRValue <* tChar ']')
-                    return $ let (rv:rvs') = rvs
-                             in foldl' (\(Array ptr offset) newOffset ->
-                                           Array (RLValue $ Array ptr offset) newOffset) (Array (RLValue lv) rv) rvs'
-              ) <|> return lv)
+-- Parse both single l value and rvalue only. If it is a array we can
+-- use the arrbase, but if the array parser fails, we only return the
+-- result of single l value or fail otherwise
+-- Need to check precedence of unary operators vs array, if array has
+-- lower binding power we have to use bSingleRValue instead of
+-- bRValueOnly.
+-- *exp[43] is parsed as (*exp)[43]. confirm if this is correct.
+bLValue = try (fmap RLValue bSingleLValue <|> bRValueOnly >>= \arrbase ->
+          (do
+                rvs <- many1 (tChar '[' *> bRValue <* tChar ']')
+                return $ let (rv:rvs') = rvs
+                         in foldl' (\(Array ptr offset) newOffset ->
+                                       Array (RLValue $ Array ptr offset) newOffset) (Array arrbase rv) rvs'
+          ) <|> (case arrbase of
+                    RLValue lv -> return lv
+                    otherwise -> empty
+                )
+               )
 
 -- TODO: Verify if fn()[] is valid B. Because array works only on (rvs) and constants.
 --       Improve how arrays are parsed and not rely on fold. Maybe make a special fold-like fn
@@ -374,7 +386,7 @@ bStatement = parse (
               return $ Case (st_loc state) c s
         )
     <|> parseInlineAsm 
-    <|> ignoreErr (try (BLabel <$> bName <* tChar ':' <*> bStatement))
+    <|> ignoreErr (try (BLabel <$> bName <* tChar ':' <*> (bStatement <|> return Empty)))
     <|> try (do
               rv <- bRValue
               case rv of
@@ -416,7 +428,7 @@ bDefinition = (
             do
                 junk
                 size <- fmap Just (tChar '[' *> (parseInt <|> return 0) <* tChar ']') <|> return Nothing
-                init <- sepBy bIVal (token $ char ',')
+                init <- sepBy (token bIVal) (token $ char ',')
                 tChar ';'
                 return $ GlobalVar name size init
             )
