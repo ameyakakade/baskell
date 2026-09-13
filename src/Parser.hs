@@ -30,15 +30,14 @@ data ParserError
 -- When merging two TrivialErrors the exp tokens are merged.
 
 instance Semigroup ParserError where
-    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2) =
-        if pos1 == pos2 then (TrivialError pos1 uxp_tok1 (E.union exp_toks1 exp_toks2))
-        else if pos1 > pos2
-             then (TrivialError pos1 uxp_tok1 exp_toks1)
-             else (TrivialError pos2 uxp_tok2 exp_toks2)
+    (<>) (TrivialError pos1 uxp_tok1 exp_toks1) (TrivialError pos2 uxp_tok2 exp_toks2)
+      | pos1 == pos2 = TrivialError pos1 uxp_tok1 (E.union exp_toks1 exp_toks2)
+      | pos1 > pos2  = TrivialError pos1 uxp_tok1 exp_toks1
+      | otherwise    = TrivialError pos2 uxp_tok2 exp_toks2
     (<>) (FancyError pos1 ferr_msg)             (TrivialError pos2 uxp_tok2 exp_toks2) =
-      (TrivialError pos2 uxp_tok2 exp_toks2)
+      TrivialError pos2 uxp_tok2 exp_toks2
     (<>) (FancyError pos1 ferr_msg1)            (FancyError pos2 ferr_msg2)            =
-      (FancyError pos1 (E.union ferr_msg1 ferr_msg2))
+      FancyError pos1 (E.union ferr_msg1 ferr_msg2)
     (<>) err1 (FancyError pos2 ferr_msg)             =  -- TODO: Having fancy errors always take priority causes bad error messages. Find out a way to merge these errors
       err1
       --(FancyError pos2 ferr_msg)
@@ -75,11 +74,10 @@ instance Functor Parser where
     -- fmap over tuple and either
 
 instance Applicative Parser where
-    pure a = Parser $ \s -> (s, pure a)
+    pure a = Parser (, pure a)
     (<*>) f p = do
         fn <- f
-        res <- p
-        return $ fn res
+        fn <$> p
 
 instance Monad Parser where
     (>>=) p f = Parser $ \s -> let (ns, res) = unwrapParser p s
@@ -90,7 +88,7 @@ instance Monad Parser where
 
 -- Be careful when designing this
 instance Alternative Parser where
-    empty = Parser $ \s -> (s, Left (TrivialError 0 Nothing (E.singleton EndOfInput)))
+    empty = Parser (, Left (TrivialError 0 Nothing (E.singleton EndOfInput)))
     (<|>) (Parser p1) (Parser p2) = Parser $
       \s -> let (s1, fstChoice) = p1 s
             in if isRight fstChoice                            -- If first parser works, return
@@ -234,7 +232,7 @@ alternatives = foo <|> bar
 many1 :: Parser a -> Parser [a]
 many1 parser = do
     p <- parser
-    ps <- (Parser.many1 parser <|> return [])
+    ps <- Parser.many1 parser <|> return []
     return $ p:ps
 
 many :: Parser a -> Parser [a]
@@ -251,7 +249,7 @@ manyTillEnd parser = do
                   TrivialError _ _ e -> if E.member EndOfInput e
                                         then return [p]
                                         else raiseError (Left a)
-                  otherwise -> raiseError (Left a)
+                  _ -> raiseError (Left a)
       Right a -> return (p:a)
 
 manyWhile :: (Char -> Bool) -> Parser b -> Parser [b]
@@ -312,4 +310,4 @@ ignoreErr p = Parser $ \s -> let (ns, res) = unwrapParser p s
                                   Right _ -> (ns, res)
                                   Left a -> case a of
                                     TrivialError loc u e -> (ns, Left $ TrivialError (-1) u e)
-                                    otherwise -> (ns, res)
+                                    _ -> (ns, res)

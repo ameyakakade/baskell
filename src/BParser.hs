@@ -207,7 +207,7 @@ parseInt = read <$> many1 (sat isNumber "Expected a number.")
 parseHex :: Parser String
 parseHex = do
     string "0x"
-    Parser.many1 $ sat (\x -> any (x==) ['A', 'B', 'C', 'D', 'E', 'F'] || isNumber x) "Invalid hexadecimal constant."
+    Parser.many1 $ sat (\x -> elem x ['A', 'B', 'C', 'D', 'E', 'F'] || isNumber x) "Invalid hexadecimal constant."
 
 parseString :: Parser String
 parseString = do
@@ -221,9 +221,9 @@ parseString = do
 parseChar :: Parser Char
 parseChar = do
     tChar '\''
-    c <- (sat (\x -> x/='"' && x/='*') "Unexpected '\"'" <|>
+    c <- sat (\x -> x/='"' && x/='*') "Unexpected '\"'" <|>
            (char '*' *> fmap escapeChar
-             (sat (const True) "Escaped char because saw '*'.")))
+             (sat (const True) "Escaped char because saw '*'."))
     tChar '\''
     return c
 
@@ -267,8 +267,7 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                           return lhs
                         else do
                           rhs <- parseExpr fail rbp
-                          flhs <- loop (Binary lhs op rhs)
-                          return flhs
+                          loop (Binary lhs op rhs)
             ) <|> (
             do
                 assign <- try $ token bAssign
@@ -276,7 +275,7 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                   RLValue lv -> do
                       expr <- parseExpr fail 0
                       return $ Assignment lv assign expr
-                  otherwise -> get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "Need L value to use `=` operator"))
+                  _ -> get >>= \s -> raiseError $ Left (FancyError (st_loc s) (E.singleton "Need L value to use `=` operator"))
             ) <|> (
             do
                 s <- get
@@ -284,7 +283,7 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                 put s
                 -- Allow failure ONLY if next token is one of these or
                 -- if explicitly allowed
-                if any (c ==) [';', ')', '(', ':', ',', ']'] || fail
+                if elem c [';', ')', '(', ':', ',', ']'] || fail
                   then return lhs
                   else empty
                 )
@@ -326,7 +325,7 @@ bLValue = try (fmap RLValue bSingleLValue <|> bRValueOnly >>= \arrbase ->
                                        Array (RLValue $ Array ptr offset) newOffset) (Array arrbase rv) rvs'
           ) <|> (case arrbase of
                     RLValue lv -> return lv
-                    otherwise -> empty
+                    _ -> empty
                 )
                )
 
@@ -382,8 +381,7 @@ bStatement = parse (
               parseKeyword "case"
               c <- token bConstant
               tChar ':'
-              s <- bStatement
-              return $ Case (st_loc state) c s
+              Case (st_loc state) c <$> bStatement
         )
     <|> parseInlineAsm 
     <|> ignoreErr (try (BLabel <$> bName <* tChar ':' <*> (bStatement <|> return Empty)))
@@ -393,11 +391,11 @@ bStatement = parse (
                 RLValue (LName n) -> do
                     ignoreErr $ tChar ';'
                     return $ SRValue rv
-                otherwise -> do
+                _ -> do
                     tChar ';'
                     return $ SRValue rv
         )
-    <|> return Empty <* tChar ';'
+    <|> Empty <$ tChar ';'
     )
 
 parseInlineAsm = do
@@ -417,8 +415,7 @@ bDefinition = (
                 tChar '('
                 args <- sepBy (token bName) (tChar ',')
                 tChar ')'
-                s <- bStatement
-                return $ FDefinition name args s
+                FDefinition name args <$> bStatement
             ) <|> (
             do
                 ss <- parseInlineAsm
