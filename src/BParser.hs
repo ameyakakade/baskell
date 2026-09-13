@@ -164,9 +164,6 @@ keywords = ["auto", "extrn", "goto", "if", "else", "return", "switch", "case", "
 parseKeyword :: String -> Parser String
 parseKeyword = token . try . string
 
-parseInt :: Parser Int
-parseInt = read <$> many1 (sat isNumber "Expected a number.")
-
 bIVal :: Parser BIVal
 bIVal = fmap IConstant bConstant
         <|> fmap IName bName
@@ -202,15 +199,15 @@ bBinary = fmap (const Or) (string "|")
           <|> fmap (const Divide) (string "/")
           <|> fmap (const QuestionMark) (string "?")
 
-bConstant = fmap Digit parseInt <|> fmap Chars parseString <|> fmap CharConst parseChar
+bConstant = fmap HexConst parseHex <|> fmap Digit parseInt <|> fmap Chars parseString <|> fmap CharConst parseChar
 
-escapeChar :: Char -> Char
-escapeChar x = case x of
-                 'n' -> '\n'
-                 't' -> '\t'
-                 '0' -> '\0'
-                 a -> a
+parseInt :: Parser Int
+parseInt = read <$> many1 (sat isNumber "Expected a number.")
 
+parseHex :: Parser String
+parseHex = do
+    string "0x"
+    Parser.many1 $ sat (\x -> any (x==) ['A', 'B', 'C', 'D', 'E', 'F'] || isNumber x) "Invalid hexadecimal constant."
 
 parseString :: Parser String
 parseString = do
@@ -230,6 +227,13 @@ parseChar = do
     tChar '\''
     return c
 
+escapeChar :: Char -> Char
+escapeChar x = case x of
+                 'n' -> '\n'
+                 't' -> '\t'
+                 '0' -> '\0'
+                 a -> a
+
 -- Rewrite the pratt parser to handle all the unary, binary, ternary
 -- operations on lvalue and rvalues. Parse lvalue rvalue in the
 -- pratter itself and decide what to based on that
@@ -248,10 +252,9 @@ parseExpr fail minBP = token (bSingleRValue <|> fmap RLValue bSingleLValue) >>= 
                 case op of
                   QuestionMark -> if minBP == 0
                                   then (do
-                                             t <- parseExpr fail 0 <* tChar ':'
-                                             f <- parseExpr fail 0
+                                             t <- parseExpr False 0 <* tChar ':'
+                                             f <- parseExpr fail  0
                                              return (Ternary lhs t f)
-                                             get >>= \s -> raiseError $ Left (TrivialError (st_loc s) Nothing (E.singleton $ Token "HAHA GOTYA!"))
                                              )
                                   else return lhs
                   a -> do
@@ -411,7 +414,11 @@ bDefinition = (
                   InlineAsm a -> return $ NakedFunction name a
             ) <|> (
             do
-                empty -- parse global variables
+                junk
+                size <- fmap Just (tChar '[' *> (parseInt <|> return 0) <* tChar ']') <|> return Nothing
+                init <- sepBy bIVal (token $ char ',')
+                tChar ';'
+                return $ GlobalVar name size init
             )
     ) <|> (
     do
@@ -423,8 +430,6 @@ bDefinition = (
         tChar ')'
         return $ VariadicFunction name num
     )
-
--- TODO: Naked functions and global variables are not parsed
 
 ting = runParser bProgram "main() { extrn wow; { printf(); }}"
 
