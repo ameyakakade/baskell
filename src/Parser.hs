@@ -77,7 +77,8 @@ instance Applicative Parser where
     pure a = Parser (, pure a)
     (<*>) f p = do
         fn <- f
-        fn <$> p
+        res <- p
+        return $ fn res
 
 instance Monad Parser where
     (>>=) p f = Parser $ \s -> let (ns, res) = unwrapParser p s

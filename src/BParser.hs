@@ -381,7 +381,8 @@ bStatement = parse (
               parseKeyword "case"
               c <- token bConstant
               tChar ':'
-              Case (st_loc state) c <$> bStatement
+              s <- bStatement
+              return $ Case (st_loc state) c s
         )
     <|> parseInlineAsm 
     <|> ignoreErr (try (BLabel <$> bName <* tChar ':' <*> (bStatement <|> return Empty)))
@@ -415,7 +416,8 @@ bDefinition = (
                 tChar '('
                 args <- sepBy (token bName) (tChar ',')
                 tChar ')'
-                FDefinition name args <$> bStatement
+                s <- bStatement
+                return $ FDefinition name args s
             ) <|> (
             do
                 ss <- parseInlineAsm
