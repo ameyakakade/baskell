@@ -1,24 +1,24 @@
 main()
 {
-    extrn write, exit, putstr, putchar, getchar;
+    extrn write, exit, printf;
     auto a,b,c;
-    a = 5;
-    b = 0;
+    a = 7;
+    b = 1;
     c = 1;
     while(a){
         if(c){
             c=0;
             if(b){
                 b=0;
-                putstr("wow*0");
+                printf("wow*n");
             }else{
-                putstr("owo*0");
+                printf("owo*n");
             }
         }else if(b){
-            putstr("ooo*0");
+            printf("ooo*n");
             c=1;
         }else{
-            putstr("www*0");
+            printf("www*n");
             c=1;
         }
         a=a-1;

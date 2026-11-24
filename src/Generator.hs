@@ -11,7 +11,6 @@ import Data.Function
 import Data.List
 import Data.Maybe
 import Data.Word
-import Parser
 
 data Arg = AutoVar     Word
          | Deref       Word

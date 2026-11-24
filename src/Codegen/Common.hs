@@ -28,7 +28,7 @@ instance Monad (StateM a) where
     x >>= y = StateM $ \c -> let (cs, input) = runStateM x c
                               in runStateM (y input) cs
 
-bd = ".baskellbuild/"
+bd = ".build/"
 
 getFileName :: String -> FilePath -> FilePath
 getFileName ext fp = bd ++ takeWhile (/='.') fp ++ ext
@@ -48,14 +48,15 @@ runIfChanged force fp out ting = do
 
 checkChange :: FilePath -> FilePath -> IO Bool
 checkChange out fp = do
-    inT <- getModificationTime fp
-    fileExists <- doesFileExist out
-    if fileExists
-    then do
-      outT <- getModificationTime out
-      let d = diffUTCTime inT outT
-      return $ d > 0
-    else return True
+    return True
+    --inT <- getModificationTime fp
+    --fileExists <- doesFileExist out
+    --if fileExists
+    --then do
+      --outT <- getModificationTime out
+      --let d = diffUTCTime inT outT
+      --return $ d > 0
+    --else return True
 
 prettyProcess :: Show a => IO (a, String, String) -> IO ()
 prettyProcess p = do
@@ -68,11 +69,12 @@ compileFile :: (IRProgram -> IO String) -> Bool -> String -> IO ()
 compileFile target dumpInfo fileName = do
     a <- readFile fileName
     let newLines = map snd $ filter (\(x,_) -> x=='\n') $ zip a [0..]
-    let parsed = startParser bProgram a
-    let (Right (r,_)) = parsed
-
-    case parsed of
-      (Right (r,_)) ->
+    let parsed = runParser bProgram a
+    let (state,r) = parsed
+    -- print r
+    
+    case r of
+      (Right r) ->
           do
             when dumpInfo (do
                             putStrLn "\nAST:"
@@ -82,7 +84,7 @@ compileFile target dumpInfo fileName = do
                             putStrLn "\nIR:"
                             prettyier $ functions $ snd irp
                             -- prettyier $ nakedFunctions $ snd irp
-                            -- prettyier $ globalVars $ snd irp    
+                            -- pret
                             prettyier $ extrns $ snd irp
                             -- prettyier $ variadics $ snd irp
                           )
@@ -103,18 +105,21 @@ compileFile target dumpInfo fileName = do
               putStrLn ""
               exitWith (ExitFailure 1)
 
-      (Left (Failure errors (loc, s))) -> do
+      (Left (TrivialError loc maybeExp exp)) -> do
                   putStrLn "Syntax failure"
                   putStr $ fileName ++ ":"
                   putStrLn $ findLoc newLines loc
-                  putStr $ unlines errors
+                  putStr $ "Got "
+                  print maybeExp 
+                  putStr $ ", expected"
+                  print exp
                   exitWith (ExitFailure 1)
 
-      (Left (Error error (loc, s))) -> do
+      (Left (FancyError loc errors)) -> do
                   putStrLn "Syntax error"
                   putStr $ fileName ++ ":"
                   putStrLn $ findLoc newLines loc
-                  putStr error
+                  print errors
                   exitWith (ExitFailure 1)
 
 findLoc :: [Int] -> Int -> String
